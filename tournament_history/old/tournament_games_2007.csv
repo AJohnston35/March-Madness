@@ -1,0 +1,64 @@
+region,round,team1,seed1,score1,team2,seed2,score2,winner
+East,First Round,UNC,1,86,Eastern Kentucky,16,65,UNC
+East,First Round,Marquette,8,49,Michigan State,9,61,Michigan State
+East,First Round,USC,5,77,Arkansas,12,60,USC
+East,First Round,Texas,4,79,New Mexico State,13,67,Texas
+East,First Round,Vanderbilt,6,77,George Washington,11,44,Vanderbilt
+East,First Round,Washington State,3,70,Oral Roberts,14,54,Washington State
+East,First Round,Boston College,7,84,Texas Tech,10,75,Boston College
+East,First Round,Georgetown,2,80,Belmont,15,55,Georgetown
+East,Second Round,UNC,1,81,Michigan State,9,67,UNC
+East,Second Round,USC,5,87,Texas,4,68,USC
+East,Second Round,Vanderbilt,6,78,Washington State,3,74,Vanderbilt
+East,Second Round,Boston College,7,55,Georgetown,2,62,Georgetown
+East,Sweet Sixteen,UNC,1,74,USC,5,64,UNC
+East,Sweet Sixteen,Vanderbilt,6,65,Georgetown,2,66,Georgetown
+East,Elite Eight,UNC,1,84,Georgetown,2,96,Georgetown
+Midwest,First Round,Florida,1,112,Jackson State,16,69,Florida
+Midwest,First Round,Arizona,8,63,Purdue,9,72,Purdue
+Midwest,First Round,Butler,5,57,Old Dominion,12,46,Butler
+Midwest,First Round,Maryland,4,82,Davidson,13,70,Maryland
+Midwest,First Round,Notre Dame,6,64,Winthrop,11,74,Winthrop
+Midwest,First Round,Oregon,3,58,Miami (OH),14,56,Oregon
+Midwest,First Round,UNLV,7,67,Georgia Tech,10,63,UNLV
+Midwest,First Round,Wisconsin,2,76,Texas A&M-Corpus Christi,15,63,Wisconsin
+Midwest,Second Round,Florida,1,74,Purdue,9,67,Florida
+Midwest,Second Round,Butler,5,62,Maryland,4,59,Butler
+Midwest,Second Round,Winthrop,11,61,Oregon,3,75,Oregon
+Midwest,Second Round,UNLV,7,74,Wisconsin,2,68,UNLV
+Midwest,Sweet Sixteen,Florida,1,65,Butler,5,57,Florida
+Midwest,Sweet Sixteen,Oregon,3,76,UNLV,7,72,Oregon
+Midwest,Elite Eight,Florida,1,85,Oregon,3,77,Florida
+South,First Round,Ohio State,1,78,Central Connecticut,16,57,Ohio State
+South,First Round,BYU,8,77,Xavier,9,79,Xavier
+South,First Round,Tennessee,5,121,Long Beach State,12,86,Tennessee
+South,First Round,Virginia,4,84,Albany (NY),13,57,Virginia
+South,First Round,Louisville,6,78,Stanford,11,58,Louisville
+South,First Round,Texas A&M,3,68,Penn,14,52,Texas A&M
+South,First Round,Nevada,7,77,Creighton,10,71,Nevada
+South,First Round,Memphis,2,73,North Texas,15,58,Memphis
+South,Second Round,Ohio State,1,78,Xavier,9,71,Ohio State
+South,Second Round,Tennessee,5,77,Virginia,4,74,Tennessee
+South,Second Round,Louisville,6,69,Texas A&M,3,72,Texas A&M
+South,Second Round,Nevada,7,62,Memphis,2,78,Memphis
+South,Sweet Sixteen,Ohio State,1,85,Tennessee,5,84,Ohio State
+South,Sweet Sixteen,Texas A&M,3,64,Memphis,2,65,Memphis
+South,Elite Eight,Ohio State,1,92,Memphis,2,76,Ohio State
+West,First Round,Kansas,1,107,Niagara,16,67,Kansas
+West,First Round,Kentucky,8,67,Villanova,9,58,Kentucky
+West,First Round,Virginia Tech,5,54,Illinois,12,52,Virginia Tech
+West,First Round,Southern Illinois,4,61,Holy Cross,13,51,Southern Illinois
+West,First Round,Duke,6,77,VCU,11,79,VCU
+West,First Round,Pitt,3,79,Wright State,14,58,Pitt
+West,First Round,Indiana,7,70,Gonzaga,10,57,Indiana
+West,First Round,UCLA,2,70,Weber State,15,42,UCLA
+West,Second Round,Kansas,1,88,Kentucky,8,76,Kansas
+West,Second Round,Virginia Tech,5,48,Southern Illinois,4,63,Southern Illinois
+West,Second Round,VCU,11,79,Pitt,3,84,Pitt
+West,Second Round,Indiana,7,49,UCLA,2,54,UCLA
+West,Sweet Sixteen,Kansas,1,61,Southern Illinois,4,58,Kansas
+West,Sweet Sixteen,Pitt,3,55,UCLA,2,64,UCLA
+West,Elite Eight,Kansas,1,55,UCLA,2,68,UCLA
+National,Final Four,Florida,1,76,UCLA,2,66,Florida
+National,Final Four,Georgetown,2,60,Ohio State,1,67,Ohio State
+National,Championship,Florida,1,84,Ohio State,1,75,Florida

@@ -1,0 +1,49 @@
+region,round,team1,seed1,score1,team2,seed2,score2,winner
+East,First Round,UNC,1,113,Penn,16,82,UNC
+East,First Round,Navy,8,82,Michigan,9,97,Michigan
+East,First Round,Notre Dame,5,84,Middle Tennessee,12,71,Notre Dame
+East,First Round,TCU,4,76,Marshall,13,60,TCU
+East,First Round,Florida,6,82,NC State,11,70,Florida
+East,First Round,Purdue,3,104,Northeastern,14,95,Purdue
+East,First Round,West Virginia,7,62,Western Kentucky,10,64,Western Kentucky
+East,First Round,Syracuse,2,79,Georgia Southern,15,73,Syracuse
+East,Second Round,UNC,1,109,Michigan,9,97,UNC
+East,Second Round,Notre Dame,5,58,TCU,4,57,Notre Dame
+East,Second Round,Florida,6,85,Purdue,3,66,Florida
+East,Second Round,Western Kentucky,10,86,Syracuse,2,104,Syracuse
+East,Sweet Sixteen,UNC,1,74,Notre Dame,5,68,UNC
+East,Sweet Sixteen,Florida,6,81,Syracuse,2,87,Syracuse
+East,Elite Eight,UNC,1,75,Syracuse,2,79,Syracuse
+Midwest,First Round,Indiana,1,92,Fairfield,16,58,Indiana
+Midwest,First Round,Auburn,8,62,San Diego,9,61,Auburn
+Midwest,First Round,Duke,5,58,Texas A&M,12,51,Duke
+Midwest,First Round,Missouri,4,69,Xavier,13,70,Xavier
+Midwest,First Round,St. John's (NY),6,57,Wichita State,11,55,St. John's (NY)
+Midwest,First Round,DePaul,3,76,Louisiana Tech,14,62,DePaul
+Midwest,First Round,Georgia Tech,7,79,LSU,10,85,LSU
+Midwest,First Round,Temple,2,75,Southern,15,56,Temple
+Midwest,Second Round,Indiana,1,107,Auburn,8,90,Indiana
+Midwest,Second Round,Duke,5,65,Xavier,13,60,Duke
+Midwest,Second Round,St. John's (NY),6,75,DePaul,3,83,DePaul
+Midwest,Second Round,LSU,10,72,Temple,2,62,LSU
+Midwest,Sweet Sixteen,Indiana,1,88,Duke,5,82,Indiana
+Midwest,Sweet Sixteen,DePaul,3,58,LSU,10,63,LSU
+Midwest,Elite Eight,Indiana,1,77,LSU,10,76,Indiana
+West,First Round,UNLV,1,95,Idaho State,16,70,UNLV
+West,First Round,Georgia,8,79,Kansas State,9,82,Kansas State
+West,First Round,Virginia,5,60,Wyoming,12,64,Wyoming
+West,First Round,UCLA,4,92,Central Michigan,13,73,UCLA
+West,First Round,Oklahoma,6,74,Tulsa,11,69,Oklahoma
+West,First Round,Pitt,3,93,Marist,14,68,Pitt
+West,First Round,UTEP,7,98,Arizona,10,91,UTEP
+West,First Round,Iowa,2,99,Santa Clara,15,76,Iowa
+West,Second Round,UNLV,1,80,Kansas State,9,61,UNLV
+West,Second Round,Wyoming,12,78,UCLA,4,68,Wyoming
+West,Second Round,Oklahoma,6,96,Pitt,3,93,Oklahoma
+West,Second Round,UTEP,7,82,Iowa,2,84,Iowa
+West,Sweet Sixteen,UNLV,1,92,Wyoming,12,78,UNLV
+West,Sweet Sixteen,Oklahoma,6,91,Iowa,2,93,Iowa
+West,Elite Eight,UNLV,1,84,Iowa,2,81,UNLV
+National,Final Four,Indiana,1,97,UNLV,1,93,Indiana
+National,Final Four,Providence,6,63,Syracuse,2,77,Syracuse
+National,Championship,Indiana,1,74,Syracuse,2,73,Indiana

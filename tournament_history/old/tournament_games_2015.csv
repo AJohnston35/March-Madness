@@ -1,0 +1,64 @@
+region,round,team1,seed1,score1,team2,seed2,score2,winner
+East,First Round,Villanova,1,93,Lafayette,16,52,Villanova
+East,First Round,NC State,8,66,LSU,9,65,NC State
+East,First Round,Northern Iowa,5,71,Wyoming,12,54,Northern Iowa
+East,First Round,Louisville,4,57,UC-Irvine,13,55,Louisville
+East,First Round,Providence,6,53,Dayton,11,66,Dayton
+East,First Round,Oklahoma,3,69,Albany (NY),14,60,Oklahoma
+East,First Round,Michigan State,7,70,Georgia,10,63,Michigan State
+East,First Round,Virginia,2,79,Belmont,15,67,Virginia
+East,Second Round,Villanova,1,68,NC State,8,71,NC State
+East,Second Round,Northern Iowa,5,53,Louisville,4,66,Louisville
+East,Second Round,Dayton,11,66,Oklahoma,3,72,Oklahoma
+East,Second Round,Michigan State,7,60,Virginia,2,54,Michigan State
+East,Sweet Sixteen,NC State,8,65,Louisville,4,75,Louisville
+East,Sweet Sixteen,Oklahoma,3,58,Michigan State,7,62,Michigan State
+East,Elite Eight,Louisville,4,70,Michigan State,7,76,Michigan State
+Midwest,First Round,Kentucky,1,79,Hampton,16,56,Kentucky
+Midwest,First Round,Cincinnati,8,66,Purdue,9,65,Cincinnati
+Midwest,First Round,West Virginia,5,68,Buffalo,12,62,West Virginia
+Midwest,First Round,Maryland,4,65,Valparaiso,13,62,Maryland
+Midwest,First Round,Butler,6,56,Texas,11,48,Butler
+Midwest,First Round,Notre Dame,3,69,Northeastern,14,65,Notre Dame
+Midwest,First Round,Wichita State,7,81,Indiana,10,76,Wichita State
+Midwest,First Round,Kansas,2,75,New Mexico State,15,56,Kansas
+Midwest,Second Round,Kentucky,1,64,Cincinnati,8,51,Kentucky
+Midwest,Second Round,West Virginia,5,69,Maryland,4,59,West Virginia
+Midwest,Second Round,Butler,6,64,Notre Dame,3,67,Notre Dame
+Midwest,Second Round,Wichita State,7,78,Kansas,2,65,Wichita State
+Midwest,Sweet Sixteen,Kentucky,1,78,West Virginia,5,39,Kentucky
+Midwest,Sweet Sixteen,Notre Dame,3,81,Wichita State,7,70,Notre Dame
+Midwest,Elite Eight,Kentucky,1,68,Notre Dame,3,66,Kentucky
+South,First Round,Duke,1,85,Robert Morris,16,56,Duke
+South,First Round,San Diego State,8,76,St. John's (NY),9,64,San Diego State
+South,First Round,Utah,5,57,Stephen F. Austin,12,50,Utah
+South,First Round,Georgetown,4,84,Eastern Washington,13,74,Georgetown
+South,First Round,SMU,6,59,UCLA,11,60,UCLA
+South,First Round,Iowa State,3,59,UAB,14,60,UAB
+South,First Round,Iowa,7,83,Davidson,10,52,Iowa
+South,First Round,Gonzaga,2,86,North Dakota State,15,76,Gonzaga
+South,Second Round,Duke,1,68,San Diego State,8,49,Duke
+South,Second Round,Utah,5,75,Georgetown,4,64,Utah
+South,Second Round,UCLA,11,92,UAB,14,75,UCLA
+South,Second Round,Iowa,7,68,Gonzaga,2,87,Gonzaga
+South,Sweet Sixteen,Duke,1,63,Utah,5,57,Duke
+South,Sweet Sixteen,UCLA,11,62,Gonzaga,2,74,Gonzaga
+South,Elite Eight,Duke,1,66,Gonzaga,2,52,Duke
+West,First Round,Wisconsin,1,86,Coastal Carolina,16,72,Wisconsin
+West,First Round,Oregon,8,79,Oklahoma State,9,73,Oregon
+West,First Round,Arkansas,5,56,Wofford,12,53,Arkansas
+West,First Round,UNC,4,67,Harvard,13,65,UNC
+West,First Round,Xavier,6,76,Ole Miss,11,57,Xavier
+West,First Round,Baylor,3,56,Georgia State,14,57,Georgia State
+West,First Round,VCU,7,72,Ohio State,10,75,Ohio State
+West,First Round,Arizona,2,93,Texas Southern,15,72,Arizona
+West,Second Round,Wisconsin,1,72,Oregon,8,65,Wisconsin
+West,Second Round,Arkansas,5,78,UNC,4,87,UNC
+West,Second Round,Xavier,6,75,Georgia State,14,67,Xavier
+West,Second Round,Ohio State,10,58,Arizona,2,73,Arizona
+West,Sweet Sixteen,Wisconsin,1,79,UNC,4,72,Wisconsin
+West,Sweet Sixteen,Xavier,6,60,Arizona,2,68,Arizona
+West,Elite Eight,Wisconsin,1,85,Arizona,2,78,Wisconsin
+National,Final Four,Duke,1,81,Michigan State,7,61,Duke
+National,Final Four,Kentucky,1,64,Wisconsin,1,71,Wisconsin
+National,Championship,Duke,1,68,Wisconsin,1,63,Duke

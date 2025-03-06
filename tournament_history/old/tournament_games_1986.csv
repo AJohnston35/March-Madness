@@ -1,0 +1,49 @@
+region,round,team1,seed1,score1,team2,seed2,score2,winner
+East,First Round,Duke,1,85,Mississippi Valley State,16,78,Duke
+East,First Round,Old Dominion,8,72,West Virginia,9,64,Old Dominion
+East,First Round,Virginia,5,68,DePaul,12,72,DePaul
+East,First Round,Oklahoma,4,80,Northeastern,13,74,Oklahoma
+East,First Round,St. Joseph's,6,60,Richmond,11,59,St. Joseph's
+East,First Round,Indiana,3,79,Cleveland State,14,83,Cleveland State
+East,First Round,Navy,7,87,Tulsa,10,68,Navy
+East,First Round,Syracuse,2,101,Brown,15,52,Syracuse
+East,Second Round,Duke,1,89,Old Dominion,8,61,Duke
+East,Second Round,DePaul,12,74,Oklahoma,4,69,DePaul
+East,Second Round,St. Joseph's,6,69,Cleveland State,14,75,Cleveland State
+East,Second Round,Navy,7,97,Syracuse,2,85,Navy
+East,Sweet Sixteen,Duke,1,74,DePaul,12,67,Duke
+East,Sweet Sixteen,Cleveland State,14,70,Navy,7,71,Navy
+East,Elite Eight,Duke,1,71,Navy,7,50,Duke
+Midwest,First Round,Kansas,1,71,North Carolina A&T,16,46,Kansas
+Midwest,First Round,Jacksonville,8,50,Temple,9,61,Temple
+Midwest,First Round,Michigan State,5,72,Washington,12,70,Michigan State
+Midwest,First Round,Georgetown,4,70,Texas Tech,13,64,Georgetown
+Midwest,First Round,NC State,6,66,Iowa,11,64,NC State
+Midwest,First Round,Notre Dame,3,83,Little Rock,14,90,Little Rock
+Midwest,First Round,Iowa State,7,81,Miami (OH),10,79,Iowa State
+Midwest,First Round,Michigan,2,70,Akron,15,64,Michigan
+Midwest,Second Round,Kansas,1,65,Temple,9,43,Kansas
+Midwest,Second Round,Michigan State,5,80,Georgetown,4,68,Michigan State
+Midwest,Second Round,NC State,6,80,Little Rock,14,66,NC State
+Midwest,Second Round,Iowa State,7,72,Michigan,2,69,Iowa State
+Midwest,Sweet Sixteen,Kansas,1,96,Michigan State,5,86,Kansas
+Midwest,Sweet Sixteen,NC State,6,70,Iowa State,7,66,NC State
+Midwest,Elite Eight,Kansas,1,75,NC State,6,67,Kansas
+West,First Round,St. John's (NY),1,83,Montana State,16,74,St. John's (NY)
+West,First Round,Auburn,8,73,Arizona,9,63,Auburn
+West,First Round,Maryland,5,69,Pepperdine,12,64,Maryland
+West,First Round,UNLV,4,74,Louisiana-Monroe,13,51,UNLV
+West,First Round,UAB,6,66,Missouri,11,64,UAB
+West,First Round,UNC,3,84,Utah,14,72,UNC
+West,First Round,Bradley,7,83,UTEP,10,65,Bradley
+West,First Round,Louisville,2,93,Drexel,15,73,Louisville
+West,Second Round,St. John's (NY),1,65,Auburn,8,81,Auburn
+West,Second Round,Maryland,5,64,UNLV,4,70,UNLV
+West,Second Round,UAB,6,59,UNC,3,77,UNC
+West,Second Round,Bradley,7,68,Louisville,2,82,Louisville
+West,Sweet Sixteen,Auburn,8,70,UNLV,4,63,Auburn
+West,Sweet Sixteen,UNC,3,79,Louisville,2,94,Louisville
+West,Elite Eight,Auburn,8,76,Louisville,2,84,Louisville
+National,Final Four,Louisville,2,88,LSU,11,77,Louisville
+National,Final Four,Kansas,1,67,Duke,1,71,Duke
+National,Championship,Louisville,2,72,Duke,1,69,Louisville

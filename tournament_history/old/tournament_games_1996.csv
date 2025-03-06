@@ -1,0 +1,49 @@
+region,round,team1,seed1,score1,team2,seed2,score2,winner
+East,First Round,UMass,1,92,UCF,16,70,UMass
+East,First Round,Bradley,8,58,Stanford,9,66,Stanford
+East,First Round,Penn State,5,80,Arkansas,12,86,Arkansas
+East,First Round,Marquette,4,68,Monmouth,13,44,Marquette
+East,First Round,UNC,6,83,New Orleans,11,62,UNC
+East,First Round,Texas Tech,3,74,Northern Illinois,14,73,Texas Tech
+East,First Round,New Mexico,7,69,Kansas State,10,48,New Mexico
+East,First Round,Georgetown,2,93,Mississippi Valley State,15,56,Georgetown
+East,Second Round,UMass,1,79,Stanford,9,74,UMass
+East,Second Round,Arkansas,12,65,Marquette,4,56,Arkansas
+East,Second Round,UNC,6,73,Texas Tech,3,92,Texas Tech
+East,Second Round,New Mexico,7,62,Georgetown,2,73,Georgetown
+East,Sweet Sixteen,UMass,1,79,Arkansas,12,63,UMass
+East,Sweet Sixteen,Texas Tech,3,90,Georgetown,2,98,Georgetown
+East,Elite Eight,UMass,1,86,Georgetown,2,62,UMass
+Midwest,First Round,Kentucky,1,110,San Jose State,16,72,Kentucky
+Midwest,First Round,Green Bay,8,48,Virginia Tech,9,61,Virginia Tech
+Midwest,First Round,Iowa State,5,74,California,12,64,Iowa State
+Midwest,First Round,Utah,4,72,Canisius,13,43,Utah
+Midwest,First Round,Louisville,6,82,Tulsa,11,80,Louisville
+Midwest,First Round,Villanova,3,92,Portland,14,58,Villanova
+Midwest,First Round,Michigan,7,76,Texas,10,80,Texas
+Midwest,First Round,Wake Forest,2,62,Louisiana-Monroe,15,50,Wake Forest
+Midwest,Second Round,Kentucky,1,84,Virginia Tech,9,60,Kentucky
+Midwest,Second Round,Iowa State,5,67,Utah,4,73,Utah
+Midwest,Second Round,Louisville,6,68,Villanova,3,64,Louisville
+Midwest,Second Round,Texas,10,62,Wake Forest,2,65,Wake Forest
+Midwest,Sweet Sixteen,Kentucky,1,101,Utah,4,70,Kentucky
+Midwest,Sweet Sixteen,Louisville,6,59,Wake Forest,2,60,Wake Forest
+Midwest,Elite Eight,Kentucky,1,83,Wake Forest,2,63,Kentucky
+West,First Round,Purdue,1,73,Western Carolina,16,71,Purdue
+West,First Round,Georgia,8,81,Clemson,9,74,Georgia
+West,First Round,Memphis,5,63,Drexel,12,75,Drexel
+West,First Round,Syracuse,4,88,Montana State,13,55,Syracuse
+West,First Round,Iowa,6,81,George Washington,11,79,Iowa
+West,First Round,Arizona,3,90,Valparaiso,14,51,Arizona
+West,First Round,Maryland,7,79,Santa Clara,10,91,Santa Clara
+West,First Round,Kansas,2,92,South Carolina State,15,54,Kansas
+West,Second Round,Purdue,1,69,Georgia,8,76,Georgia
+West,Second Round,Drexel,12,58,Syracuse,4,69,Syracuse
+West,Second Round,Iowa,6,73,Arizona,3,87,Arizona
+West,Second Round,Santa Clara,10,51,Kansas,2,76,Kansas
+West,Sweet Sixteen,Georgia,8,81,Syracuse,4,83,Syracuse
+West,Sweet Sixteen,Arizona,3,80,Kansas,2,83,Kansas
+West,Elite Eight,Syracuse,4,60,Kansas,2,57,Syracuse
+National,Final Four,Kentucky,1,81,UMass,1,74,Kentucky
+National,Final Four,Mississippi State,5,69,Syracuse,4,77,Syracuse
+National,Championship,Kentucky,1,76,Syracuse,4,67,Kentucky

@@ -1,0 +1,49 @@
+region,round,team1,seed1,score1,team2,seed2,score2,winner
+East,First Round,UNC,1,85,East Carolina,16,65,UNC
+East,First Round,Rhode Island,8,74,Purdue,9,68,Rhode Island
+East,First Round,St. John's (NY),5,85,Texas Tech,12,67,St. John's (NY)
+East,First Round,Arkansas,4,94,Holy Cross,13,64,Arkansas
+East,First Round,Virginia,6,78,Manhattan,11,66,Virginia
+East,First Round,UMass,3,54,Penn,14,50,UMass
+East,First Round,New Mexico State,7,93,Nebraska,10,79,New Mexico State
+East,First Round,Cincinnati,2,93,Coppin State,15,66,Cincinnati
+East,Second Round,UNC,1,112,Rhode Island,8,67,UNC
+East,Second Round,St. John's (NY),5,74,Arkansas,4,80,Arkansas
+East,Second Round,Virginia,6,71,UMass,3,56,Virginia
+East,Second Round,New Mexico State,7,55,Cincinnati,2,92,Cincinnati
+East,Sweet Sixteen,UNC,1,80,Arkansas,4,74,UNC
+East,Sweet Sixteen,Virginia,6,54,Cincinnati,2,71,Cincinnati
+East,Elite Eight,UNC,1,75,Cincinnati,2,68,UNC
+Midwest,First Round,Indiana,1,97,Wright State,16,54,Indiana
+Midwest,First Round,New Orleans,8,55,Xavier,9,73,Xavier
+Midwest,First Round,Oklahoma State,5,74,Marquette,12,62,Oklahoma State
+Midwest,First Round,Louisville,4,76,Delaware,13,70,Louisville
+Midwest,First Round,California,6,66,LSU,11,64,California
+Midwest,First Round,Duke,3,105,Southern Illinois,14,70,Duke
+Midwest,First Round,BYU,7,80,SMU,10,71,BYU
+Midwest,First Round,Kansas,2,94,Ball State,15,72,Kansas
+Midwest,Second Round,Indiana,1,73,Xavier,9,70,Indiana
+Midwest,Second Round,Oklahoma State,5,63,Louisville,4,78,Louisville
+Midwest,Second Round,California,6,82,Duke,3,77,California
+Midwest,Second Round,BYU,7,76,Kansas,2,90,Kansas
+Midwest,Sweet Sixteen,Indiana,1,82,Louisville,4,69,Indiana
+Midwest,Sweet Sixteen,California,6,76,Kansas,2,93,Kansas
+Midwest,Elite Eight,Indiana,1,77,Kansas,2,83,Kansas
+West,First Round,Michigan,1,84,Coastal Carolina,16,53,Michigan
+West,First Round,Iowa State,8,70,UCLA,9,81,UCLA
+West,First Round,New Mexico,5,68,George Washington,12,82,George Washington
+West,First Round,Georgia Tech,4,78,Southern,13,93,Southern
+West,First Round,Illinois,6,75,Long Beach State,11,72,Illinois
+West,First Round,Vanderbilt,3,92,Boise State,14,72,Vanderbilt
+West,First Round,Temple,7,75,Missouri,10,61,Temple
+West,First Round,Arizona,2,61,Santa Clara,15,64,Santa Clara
+West,Second Round,Michigan,1,86,UCLA,9,84,Michigan
+West,Second Round,George Washington,12,90,Southern,13,80,George Washington
+West,Second Round,Illinois,6,68,Vanderbilt,3,85,Vanderbilt
+West,Second Round,Temple,7,68,Santa Clara,15,57,Temple
+West,Sweet Sixteen,Michigan,1,72,George Washington,12,64,Michigan
+West,Sweet Sixteen,Vanderbilt,3,59,Temple,7,67,Temple
+West,Elite Eight,Michigan,1,77,Temple,7,72,Michigan
+National,Final Four,UNC,1,78,Kansas,2,68,UNC
+National,Final Four,Kentucky,1,78,Michigan,1,81,Michigan
+National,Championship,UNC,1,77,Michigan,1,71,UNC

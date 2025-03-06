@@ -1,0 +1,64 @@
+region,round,team1,seed1,score1,team2,seed2,score2,winner
+East,First Round,Duke,1,85,North Dakota State,16,62,Duke
+East,First Round,VCU,8,58,UCF,9,73,UCF
+East,First Round,Mississippi State,5,76,Liberty,12,80,Liberty
+East,First Round,Virginia Tech,4,66,Saint Louis,13,52,Virginia Tech
+East,First Round,Maryland,6,79,Belmont,11,77,Maryland
+East,First Round,LSU,3,79,Yale,14,74,LSU
+East,First Round,Louisville,7,76,Minnesota,10,86,Minnesota
+East,First Round,Michigan State,2,76,Bradley,15,65,Michigan State
+East,Second Round,Duke,1,77,UCF,9,76,Duke
+East,Second Round,Liberty,12,58,Virginia Tech,4,67,Virginia Tech
+East,Second Round,Maryland,6,67,LSU,3,69,LSU
+East,Second Round,Minnesota,10,50,Michigan State,2,70,Michigan State
+East,Sweet Sixteen,Duke,1,75,Virginia Tech,4,73,Duke
+East,Sweet Sixteen,LSU,3,63,Michigan State,2,80,Michigan State
+East,Elite Eight,Duke,1,67,Michigan State,2,68,Michigan State
+Midwest,First Round,UNC,1,88,Iona,16,73,UNC
+Midwest,First Round,Utah State,8,61,Washington,9,78,Washington
+Midwest,First Round,Auburn,5,78,New Mexico State,12,77,Auburn
+Midwest,First Round,Kansas,4,87,Northeastern,13,53,Kansas
+Midwest,First Round,Iowa State,6,59,Ohio State,11,62,Ohio State
+Midwest,First Round,Houston,3,84,Georgia State,14,55,Houston
+Midwest,First Round,Wofford,7,84,Seton Hall,10,68,Wofford
+Midwest,First Round,Kentucky,2,79,Abilene Christian,15,44,Kentucky
+Midwest,Second Round,UNC,1,81,Washington,9,59,UNC
+Midwest,Second Round,Auburn,5,89,Kansas,4,75,Auburn
+Midwest,Second Round,Ohio State,11,59,Houston,3,74,Houston
+Midwest,Second Round,Wofford,7,56,Kentucky,2,62,Kentucky
+Midwest,Sweet Sixteen,UNC,1,80,Auburn,5,97,Auburn
+Midwest,Sweet Sixteen,Houston,3,58,Kentucky,2,62,Kentucky
+Midwest,Elite Eight,Auburn,5,77,Kentucky,2,71,Auburn
+South,First Round,Virginia,1,71,Gardner-Webb,16,56,Virginia
+South,First Round,Ole Miss,8,72,Oklahoma,9,95,Oklahoma
+South,First Round,Wisconsin,5,54,Oregon,12,72,Oregon
+South,First Round,Kansas State,4,64,UC-Irvine,13,70,UC-Irvine
+South,First Round,Villanova,6,61,Saint Mary's,11,57,Villanova
+South,First Round,Purdue,3,61,Old Dominion,14,48,Purdue
+South,First Round,Cincinnati,7,72,Iowa,10,79,Iowa
+South,First Round,Tennessee,2,77,Colgate,15,70,Tennessee
+South,Second Round,Virginia,1,63,Oklahoma,9,51,Virginia
+South,Second Round,Oregon,12,73,UC-Irvine,13,54,Oregon
+South,Second Round,Villanova,6,61,Purdue,3,87,Purdue
+South,Second Round,Iowa,10,77,Tennessee,2,83,Tennessee
+South,Sweet Sixteen,Virginia,1,53,Oregon,12,49,Virginia
+South,Sweet Sixteen,Purdue,3,99,Tennessee,2,94,Purdue
+South,Elite Eight,Virginia,1,80,Purdue,3,75,Virginia
+West,First Round,Gonzaga,1,87,FDU,16,49,Gonzaga
+West,First Round,Syracuse,8,69,Baylor,9,78,Baylor
+West,First Round,Marquette,5,64,Murray State,12,83,Murray State
+West,First Round,Florida State,4,76,Vermont,13,69,Florida State
+West,First Round,Buffalo,6,91,Arizona State,11,74,Buffalo
+West,First Round,Texas Tech,3,72,Northern Kentucky,14,57,Texas Tech
+West,First Round,Nevada,7,61,Florida,10,70,Florida
+West,First Round,Michigan,2,74,Montana,15,55,Michigan
+West,Second Round,Gonzaga,1,83,Baylor,9,71,Gonzaga
+West,Second Round,Murray State,12,62,Florida State,4,90,Florida State
+West,Second Round,Buffalo,6,58,Texas Tech,3,78,Texas Tech
+West,Second Round,Florida,10,49,Michigan,2,64,Michigan
+West,Sweet Sixteen,Gonzaga,1,72,Florida State,4,58,Gonzaga
+West,Sweet Sixteen,Texas Tech,3,63,Michigan,2,44,Texas Tech
+West,Elite Eight,Gonzaga,1,69,Texas Tech,3,75,Texas Tech
+National,Final Four,Virginia,1,63,Auburn,5,62,Virginia
+National,Final Four,Texas Tech,3,61,Michigan State,2,51,Texas Tech
+National,Championship,Virginia,1,85,Texas Tech,3,77,Virginia

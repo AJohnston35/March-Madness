@@ -1,0 +1,49 @@
+region,round,team1,seed1,score1,team2,seed2,score2,winner
+East,First Round,Duke,1,82,Campbell,16,56,Duke
+East,First Round,Texas,8,92,Iowa,9,98,Iowa
+East,First Round,Missouri,5,89,West Virginia,12,78,Missouri
+East,First Round,Seton Hall,4,78,La Salle,13,76,Seton Hall
+East,First Round,Syracuse,6,51,Princeton,11,43,Syracuse
+East,First Round,UMass,3,85,Fordham,14,58,UMass
+East,First Round,Charlotte,7,74,Iowa State,10,76,Iowa State
+East,First Round,Kentucky,2,88,Old Dominion,15,69,Kentucky
+East,Second Round,Duke,1,75,Iowa,9,62,Duke
+East,Second Round,Missouri,5,71,Seton Hall,4,88,Seton Hall
+East,Second Round,Syracuse,6,71,UMass,3,77,UMass
+East,Second Round,Iowa State,10,98,Kentucky,2,106,Kentucky
+East,Sweet Sixteen,Duke,1,81,Seton Hall,4,69,Duke
+East,Sweet Sixteen,UMass,3,77,Kentucky,2,87,Kentucky
+East,Elite Eight,Duke,1,104,Kentucky,2,103,Duke
+Midwest,First Round,Kansas,1,100,Howard,16,67,Kansas
+Midwest,First Round,Evansville,8,50,UTEP,9,55,UTEP
+Midwest,First Round,Michigan State,5,61,Missouri State,12,54,Michigan State
+Midwest,First Round,Cincinnati,4,85,Delaware,13,47,Cincinnati
+Midwest,First Round,Memphis,6,80,Pepperdine,11,70,Memphis
+Midwest,First Round,Arkansas,3,80,Murray State,14,69,Arkansas
+Midwest,First Round,Georgia Tech,7,65,Houston,10,60,Georgia Tech
+Midwest,First Round,USC,2,84,Louisiana-Monroe,15,54,USC
+Midwest,Second Round,Kansas,1,60,UTEP,9,66,UTEP
+Midwest,Second Round,Michigan State,5,65,Cincinnati,4,77,Cincinnati
+Midwest,Second Round,Memphis,6,82,Arkansas,3,80,Memphis
+Midwest,Second Round,Georgia Tech,7,79,USC,2,78,Georgia Tech
+Midwest,Sweet Sixteen,UTEP,9,67,Cincinnati,4,69,Cincinnati
+Midwest,Sweet Sixteen,Memphis,6,83,Georgia Tech,7,79,Memphis
+Midwest,Elite Eight,Cincinnati,4,88,Memphis,6,57,Cincinnati
+West,First Round,UCLA,1,73,Robert Morris,16,53,UCLA
+West,First Round,Louisville,8,81,Wake Forest,9,58,Louisville
+West,First Round,DePaul,5,73,New Mexico State,12,81,New Mexico State
+West,First Round,Oklahoma,4,83,Louisiana,13,87,Louisiana
+West,First Round,Georgetown,6,75,South Florida,11,60,Georgetown
+West,First Round,Florida State,3,78,Montana,14,68,Florida State
+West,First Round,LSU,7,94,BYU,10,83,LSU
+West,First Round,Indiana,2,94,Eastern Illinois,15,55,Indiana
+West,Second Round,UCLA,1,85,Louisville,8,69,UCLA
+West,Second Round,New Mexico State,12,81,Louisiana,13,73,New Mexico State
+West,Second Round,Georgetown,6,68,Florida State,3,78,Florida State
+West,Second Round,LSU,7,79,Indiana,2,89,Indiana
+West,Sweet Sixteen,UCLA,1,85,New Mexico State,12,78,UCLA
+West,Sweet Sixteen,Florida State,3,74,Indiana,2,85,Indiana
+West,Elite Eight,UCLA,1,79,Indiana,2,106,Indiana
+National,Final Four,Duke,1,81,Indiana,2,78,Duke
+National,Final Four,Cincinnati,4,72,Michigan,6,76,Michigan
+National,Championship,Duke,1,71,Michigan,6,51,Duke
