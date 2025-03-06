@@ -1,0 +1,399 @@
+team1,seed1,team2,seed2,winner,year,round,predicted_winner,predicted_team
+UNLV,1,Idaho State,16,UNLV,1987,0,1,UNLV
+Kansas,2,Utah State,15,Kansas,2003,0,1,Kansas
+BYU,7,Kansas,2,Kansas,1993,1,0,Kansas
+Kansas State,4,Kansas,6,Kansas,1988,3,1,Kansas State
+UNC,1,UConn,2,UNC,1998,3,1,UNC
+UNLV,6,Colorado,11,Colorado,2012,0,0,Colorado
+UConn,1,Northwestern,9,UConn,2024,1,1,UConn
+Kentucky,4,Valparaiso,13,Kentucky,2002,0,1,Kentucky
+Houston,1,Auburn,9,Houston,2023,1,1,Houston
+UNC,6,Providence,11,UNC,2014,0,0,Providence
+Indiana,4,Kent State,13,Indiana,2023,0,1,Indiana
+Syracuse,2,Georgia Southern,15,Syracuse,1987,0,1,Syracuse
+Maryland,1,Siena,16,Maryland,2002,0,1,Maryland
+Charlotte,8,UIC,9,Charlotte,1998,0,1,Charlotte
+Kansas,1,Stanford,8,Kansas,2002,1,1,Kansas
+Kentucky,1,Michigan,1,Michigan,1993,4,0,Michigan
+UNC,8,Villanova,9,UNC,2013,0,1,UNC
+Purdue,6,Xavier,3,Xavier,2008,1,0,Xavier
+Florida,1,Jackson State,16,Florida,2007,0,1,Florida
+Gonzaga,1,FDU,16,Gonzaga,2019,0,1,Gonzaga
+Texas,10,Wake Forest,2,Wake Forest,1996,1,0,Wake Forest
+Maryland,4,Valparaiso,13,Maryland,2015,0,1,Maryland
+UConn,1,Stetson,16,UConn,2024,0,1,UConn
+Gonzaga,1,Georgia State,16,Gonzaga,2022,0,1,Gonzaga
+UNC,1,Illinois,1,UNC,2005,5,1,UNC
+Missouri,12,Ohio State,4,Missouri,2002,1,1,Missouri
+Oklahoma State,3,Temple,10,Temple,1991,2,1,Oklahoma State
+UCLA,4,Akron,13,UCLA,2022,0,1,UCLA
+Boston College,3,Southern Utah,14,Boston College,2001,0,1,Boston College
+Baylor,6,Nebraska,11,Baylor,2014,0,1,Baylor
+San Diego State,5,Creighton,6,San Diego State,2023,3,1,San Diego State
+Princeton,5,Michigan State,4,Michigan State,1998,1,0,Michigan State
+LSU,8,Butler,9,LSU,2009,0,1,LSU
+Wisconsin,1,Coastal Carolina,16,Wisconsin,2015,0,1,Wisconsin
+Michigan State,1,Duke,1,Duke,1999,4,1,Michigan State
+Indiana,7,Oklahoma,10,Indiana,1998,0,1,Indiana
+USC,6,Oklahoma State,11,USC,2001,0,1,USC
+Kansas,3,Michigan State,2,Michigan State,2009,2,0,Michigan State
+Gonzaga,11,Utah,3,Gonzaga,2016,1,0,Utah
+Maryland,4,Utah State,13,Maryland,1998,0,1,Maryland
+Washington State,4,Winthrop,13,Washington State,2008,0,1,Washington State
+Kansas,1,UNC,8,Kansas,2022,5,1,Kansas
+UNC,1,Michigan State,5,UNC,2005,4,1,UNC
+Duke,1,Old Dominion,8,Duke,1986,1,1,Duke
+St. John's (NY),1,NC State,3,St. John's (NY),1985,3,1,St. John's (NY)
+Harvard,12,Michigan State,4,Michigan State,2014,1,0,Michigan State
+Louisville,1,Duke,2,Louisville,2013,3,1,Louisville
+UCLA,4,Tulsa,13,UCLA,2014,0,1,UCLA
+Vanderbilt,3,Temple,7,Temple,1993,2,1,Vanderbilt
+UConn,1,Illinois,3,UConn,2024,3,1,UConn
+Arizona State,6,Syracuse,3,Syracuse,2009,1,0,Syracuse
+Richmond,7,Saint Mary's,10,Saint Mary's,2010,0,1,Richmond
+Washington State,7,Drake,10,Washington State,2024,0,1,Washington State
+Duke,1,DePaul,12,Duke,1986,2,1,Duke
+Xavier,6,Washington,11,Washington,1998,0,0,Washington
+Louisville,2,Duke,1,Louisville,1986,5,1,Louisville
+Maryland,2,Valparaiso,15,Maryland,1999,0,1,Maryland
+Utah,8,Saint Louis,9,Utah,2000,0,1,Utah
+Cincinnati,3,George Mason,14,Cincinnati,1999,0,1,Cincinnati
+Wisconsin,5,Tulsa,13,Wisconsin,2003,1,1,Wisconsin
+Syracuse,3,North Carolina A&T,14,Syracuse,1988,0,1,Syracuse
+Duke,1,Indiana,2,Duke,1992,4,0,Indiana
+Creighton,12,Illinois,4,Illinois,2002,1,0,Illinois
+Michigan State,5,Georgetown,4,Michigan State,1986,1,1,Michigan State
+Houston,5,Villanova,2,Villanova,2022,3,0,Villanova
+Duke,1,Notre Dame,8,Duke,2002,1,1,Duke
+UMass,1,UCF,16,UMass,1996,0,1,UMass
+Texas,8,Iowa,9,Iowa,1992,0,1,Texas
+Purdue,2,Cal State Fullerton,15,Purdue,2018,0,1,Purdue
+Wisconsin,3,Davidson,10,Davidson,2008,2,1,Wisconsin
+Washington,11,Richmond,14,Washington,1998,1,1,Washington
+UNC,8,Tennessee,4,UNC,2000,2,1,UNC
+Duke,1,Iowa,9,Duke,1992,1,1,Duke
+Arizona,4,UNC,1,Arizona,1997,4,0,UNC
+Kansas,1,Howard,16,Kansas,1992,0,1,Kansas
+Colorado State,8,Missouri,9,Colorado State,2013,0,1,Colorado State
+Kansas,1,Holy Cross,16,Kansas,2002,0,1,Kansas
+Butler,6,Marquette,3,Marquette,2013,1,1,Butler
+Georgetown,4,Texas Tech,13,Georgetown,1986,0,1,Georgetown
+Florida,6,Texas Tech,3,Texas Tech,2018,1,0,Texas Tech
+Maryland,5,Hawaii,13,Maryland,2016,1,1,Maryland
+Pepperdine,11,Oklahoma State,3,Oklahoma State,2000,1,0,Oklahoma State
+Virginia,1,Butler,9,Virginia,2016,1,1,Virginia
+Illinois,6,Vanderbilt,3,Vanderbilt,1993,1,0,Vanderbilt
+Michigan,2,Wofford,15,Michigan,2014,0,1,Michigan
+UNLV,1,Wyoming,12,UNLV,1987,2,1,UNLV
+Notre Dame,5,TCU,4,Notre Dame,1987,1,1,Notre Dame
+Kentucky,6,Kansas State,3,Kansas State,2023,1,0,Kansas State
+Pitt,3,Kent State,10,Kent State,2002,2,1,Pitt
+Illinois,1,Louisville,4,Illinois,1989,2,1,Illinois
+Oklahoma,1,California,8,Oklahoma,2003,1,1,Oklahoma
+Duke,1,Kentucky,2,Kentucky,1998,3,0,Kentucky
+Arizona,6,Belmont,11,Arizona,2013,0,1,Arizona
+UConn,1,Duke,1,UConn,1999,5,1,UConn
+Syracuse,4,Marquette,3,Syracuse,2013,3,1,Syracuse
+SMU,7,Duke,2,Duke,1988,1,0,Duke
+Kansas,1,Oregon,3,Oregon,2017,3,1,Kansas
+Kansas,4,Cal State Northridge,13,Kansas,2001,0,1,Kansas
+Marquette,11,Syracuse,3,Marquette,2011,1,0,Syracuse
+Wofford,7,Kentucky,2,Kentucky,2019,1,0,Kentucky
+Seton Hall,3,Arizona,2,Seton Hall,1991,2,0,Arizona
+Nebraska,3,Xavier,14,Xavier,1991,0,1,Nebraska
+Washington,7,Georgia,10,Washington,2011,0,1,Washington
+Indiana,1,Wright State,16,Indiana,1993,0,1,Indiana
+Tennessee,11,Michigan,2,Michigan,2014,2,0,Michigan
+UNLV,5,California,12,California,2013,0,1,UNLV
+Nevada,7,Florida,10,Florida,2019,0,1,Nevada
+Miami (FL),8,Michigan State,9,Michigan State,2017,0,0,Michigan State
+Michigan State,1,Gonzaga,12,Michigan State,2001,2,1,Michigan State
+Syracuse,3,Oklahoma,2,Oklahoma,2009,2,1,Syracuse
+UNC,1,Louisville,3,UNC,2008,3,1,UNC
+Arkansas,7,Butler,10,Butler,2018,0,0,Butler
+Notre Dame,6,Michigan,11,Notre Dame,2016,0,1,Notre Dame
+Cincinnati,6,UConn,3,UConn,2011,1,0,UConn
+UNLV,1,Little Rock,16,UNLV,1990,0,1,UNLV
+Indiana,1,Louisville,4,Indiana,1993,2,1,Indiana
+Cincinnati,6,Kansas State,11,Cincinnati,2017,0,1,Cincinnati
+Wisconsin,5,Oregon,12,Oregon,2019,0,1,Wisconsin
+Duke,1,Maryland,3,Duke,2001,4,1,Duke
+Duke,1,Indiana,5,Indiana,2002,2,1,Duke
+Indiana,1,UNLV,1,Indiana,1987,4,1,Indiana
+Miami (FL),2,Pacific,15,Miami (FL),2013,0,1,Miami (FL)
+Illinois,1,McNeese State,16,Illinois,1989,0,1,Illinois
+Oklahoma,1,UNC,8,UNC,1990,1,1,Oklahoma
+Duke,2,Iona,15,Duke,2018,0,1,Duke
+Wisconsin,5,Ole Miss,12,Ole Miss,2013,0,1,Wisconsin
+Oregon,1,Oklahoma,2,Oklahoma,2016,3,0,Oklahoma
+Oklahoma,4,Northeastern,13,Oklahoma,1986,0,1,Oklahoma
+Clemson,6,Western Michigan,11,Western Michigan,1998,0,1,Clemson
+UConn,1,New Mexico,9,UConn,1999,1,1,UConn
+Notre Dame,5,Middle Tennessee,12,Notre Dame,1987,0,1,Notre Dame
+Winthrop,11,Oregon,3,Oregon,2007,1,0,Oregon
+UNC,1,Indiana,5,UNC,2016,2,1,UNC
+Iowa,6,Arizona,3,Arizona,1996,1,0,Arizona
+Marquette,3,Kansas,2,Kansas,2003,4,0,Kansas
+Georgia Tech,2,Mercer,15,Georgia Tech,1985,0,1,Georgia Tech
+Gonzaga,10,St. John's (NY),2,Gonzaga,2000,1,1,Gonzaga
+UNC,1,Fairfield,16,UNC,1997,0,1,UNC
+Michigan,3,Illinois,1,Michigan,1989,4,1,Michigan
+Murray State,7,San Francisco,10,Murray State,2022,0,1,Murray State
+Syracuse,5,Hawaii,12,Syracuse,2001,0,1,Syracuse
+Xavier,3,Texas,2,Texas,2023,2,1,Xavier
+UNLV,1,Seton Hall,3,UNLV,1991,3,1,UNLV
+Iowa State,11,Miami (FL),10,Miami (FL),2022,2,1,Iowa State
+UCLA,7,Kansas,2,UCLA,1990,1,0,Kansas
+UConn,1,San Diego State,5,UConn,2024,2,1,UConn
+Murray State,12,Florida State,4,Florida State,2019,1,0,Florida State
+Gonzaga,3,Grand Canyon,14,Gonzaga,2023,0,1,Gonzaga
+Georgetown,2,UMBC,15,Georgetown,2008,0,1,Georgetown
+Marquette,6,Washington,11,Washington,2010,0,0,Washington
+UNC,1,Mount St. Mary's,16,UNC,2008,0,1,UNC
+USC,5,Arkansas,12,USC,2007,0,1,USC
+Louisville,1,Morehead State,16,Louisville,2009,0,1,Louisville
+Duke,1,Tulsa,9,Duke,1999,1,1,Duke
+Louisiana Tech,5,Pitt,12,Louisiana Tech,1985,0,1,Louisiana Tech
+Kentucky,1,Utah,9,Kentucky,2003,1,1,Kentucky
+Stephen F. Austin,12,UCLA,4,UCLA,2014,1,0,UCLA
+Illinois,5,Dayton,12,Dayton,1990,0,1,Illinois
+Cincinnati,6,Ohio State,2,Ohio State,2012,2,0,Ohio State
+UNC,1,Oklahoma,2,UNC,2009,3,1,UNC
+Gonzaga,1,Texas Tech,3,Texas Tech,2019,3,0,Texas Tech
+Michigan,3,UNC,2,UNC,1988,2,1,Michigan
+Loyola (IL),4,Iona,13,Loyola (IL),1985,0,1,Loyola (IL)
+UNC,3,Weber State,14,Weber State,1999,0,1,UNC
+Baylor,3,South Carolina,7,South Carolina,2017,2,1,Baylor
+UNC,3,Louisville,2,Louisville,1986,2,1,UNC
+Auburn,8,Arizona,9,Auburn,1986,0,1,Auburn
+Indiana,1,Fairfield,16,Indiana,1987,0,1,Indiana
+Oklahoma,2,Indiana,5,Indiana,2002,4,1,Oklahoma
+Purdue,5,Washington,4,Purdue,2009,1,1,Purdue
+Florida,3,UCLA,2,Florida,2006,5,1,Florida
+UNC,1,Providence,9,UNC,2016,1,1,UNC
+Arizona,5,Miami (OH),12,Miami (OH),1995,0,1,Arizona
+Arizona,2,Santa Clara,15,Santa Clara,1993,0,1,Arizona
+DePaul,12,Oklahoma,4,DePaul,1986,1,1,DePaul
+Villanova,12,Siena,13,Villanova,2008,1,1,Villanova
+Saint Louis,10,Kentucky,2,Kentucky,1998,1,0,Kentucky
+Notre Dame,6,Xavier,11,Notre Dame,2001,0,1,Notre Dame
+Saint Louis,7,Maryland,10,Maryland,1994,0,0,Maryland
+Texas,6,Oregon,2,Oregon,2002,2,0,Oregon
+Memphis,6,Arkansas,2,Arkansas,1995,2,0,Arkansas
+Michigan,3,Pepperdine,14,Michigan,1994,0,1,Michigan
+Missouri,3,Creighton,14,Missouri,1989,0,1,Missouri
+UNLV,4,Louisiana-Monroe,13,UNLV,1986,0,1,UNLV
+Maryland,6,LSU,3,LSU,2019,1,0,LSU
+Marquette,8,Michigan State,9,Michigan State,2007,0,0,Michigan State
+Wichita State,5,VCU,12,VCU,2012,0,0,VCU
+Iowa State,6,UCLA,2,UCLA,1997,2,0,UCLA
+Texas A&M,3,Penn,14,Texas A&M,2007,0,1,Texas A&M
+Indiana,5,Temple,4,Indiana,1994,1,1,Indiana
+UNLV,4,San Diego State,13,UNLV,1985,0,1,UNLV
+Georgia,8,Kansas State,9,Kansas State,1987,0,1,Georgia
+Michigan State,5,Butler,5,Butler,2010,4,0,Butler
+Gonzaga,7,Ohio State,2,Ohio State,2012,1,0,Ohio State
+Wake Forest,3,Saint Mary's,14,Wake Forest,1997,0,1,Wake Forest
+Arkansas,1,Michigan,3,Arkansas,1994,3,1,Arkansas
+Indiana,1,Xavier,9,Indiana,1993,1,1,Indiana
+Iowa State,6,Illinois State,11,Iowa State,1997,0,1,Iowa State
+Arizona,1,Wright State,16,Arizona,2022,0,1,Arizona
+UCLA,6,Kentucky,2,Kentucky,1998,2,0,Kentucky
+Georgetown,8,Vanderbilt,9,Georgetown,1991,0,1,Georgetown
+Missouri,6,Marquette,3,Marquette,2003,1,0,Marquette
+Wichita State,11,Miami (FL),3,Miami (FL),2016,1,0,Miami (FL)
+Iowa,7,Villanova,2,Villanova,2016,1,0,Villanova
+Kentucky,6,Providence,11,Kentucky,2023,0,1,Kentucky
+Texas,2,Austin Peay,15,Texas,2008,0,1,Texas
+Villanova,2,Milwaukee,15,Villanova,2014,0,1,Villanova
+Detroit Mercy,10,Purdue,2,Purdue,1998,1,0,Purdue
+Ohio State,10,Arizona,2,Arizona,2015,1,0,Arizona
+San Diego State,2,Northern Colorado,15,San Diego State,2011,0,1,San Diego State
+Pitt,3,Marist,14,Pitt,1987,0,1,Pitt
+Virginia,1,Purdue,3,Virginia,2019,3,1,Virginia
+James Madison,12,Duke,4,Duke,2024,1,0,Duke
+San Diego State,5,College of Charleston,12,San Diego State,2023,0,1,San Diego State
+Syracuse,1,Gonzaga,8,Syracuse,2010,1,1,Syracuse
+St. Joseph's,6,Richmond,11,St. Joseph's,1986,0,1,St. Joseph's
+Cincinnati,3,Butler,14,Cincinnati,1997,0,1,Cincinnati
+Oklahoma State,3,Seton Hall,10,Oklahoma State,2000,2,1,Oklahoma State
+Yale,12,Duke,4,Duke,2016,1,0,Duke
+Miami (FL),3,Villanova,2,Villanova,2016,2,0,Villanova
+Gonzaga,3,UCLA,2,Gonzaga,2023,2,0,UCLA
+Florida State,3,Montana,14,Florida State,1992,0,1,Florida State
+Georgetown,3,Belmont,14,Georgetown,2012,0,1,Georgetown
+UNC,8,Marquette,9,UNC,2022,0,1,UNC
+Baylor,3,UCSB,14,Baylor,2023,0,1,Baylor
+Missouri,8,New Mexico,9,New Mexico,1999,0,0,New Mexico
+Arizona,1,Gonzaga,8,Arizona,2014,1,1,Arizona
+Tennessee,2,Colgate,15,Tennessee,2019,0,1,Tennessee
+Stanford,3,Siena,14,Siena,1989,0,1,Stanford
+Virginia,7,Arizona,2,Arizona,1994,1,0,Arizona
+Michigan State,4,Eastern Michigan,13,Michigan State,1998,0,1,Michigan State
+Georgia,8,Syracuse,4,Syracuse,1996,2,0,Syracuse
+Gonzaga,1,West Virginia,4,Gonzaga,2017,2,1,Gonzaga
+UNC,1,Wagner,16,UNC,2024,0,1,UNC
+UConn,1,UTSA,16,UConn,1999,0,1,UConn
+Arizona,4,Kentucky,1,Arizona,1997,5,0,Kentucky
+UNC,1,Villanova,9,UNC,1991,1,1,UNC
+Mississippi State,5,Eastern Michigan,12,Eastern Michigan,1991,0,1,Mississippi State
+UCLA,6,Ball State,11,UCLA,2000,0,1,UCLA
+Penn State,10,Texas,2,Texas,2023,1,0,Texas
+Iowa State,2,South Dakota State,15,Iowa State,2024,0,1,Iowa State
+Auburn,4,Yale,13,Yale,2024,0,1,Auburn
+Saint Mary's,7,VCU,10,Saint Mary's,2017,0,1,Saint Mary's
+Villanova,8,Memphis,2,Villanova,1985,4,0,Memphis
+Oklahoma,1,Memphis,2,Memphis,1985,3,1,Oklahoma
+Marquette,5,Tulsa,12,Tulsa,2002,0,1,Marquette
+Vanderbilt,8,Notre Dame,9,Notre Dame,1989,0,1,Vanderbilt
+Duke,2,Cal State Fullerton,15,Duke,2022,0,1,Duke
+Kentucky,2,Stanford,3,Kentucky,1998,4,1,Kentucky
+UNC,1,Eastern Michigan,12,UNC,1991,2,1,UNC
+Florida,7,Colorado,10,Colorado,2024,0,1,Florida
+Syracuse,1,Ohio State,2,Ohio State,2012,3,1,Syracuse
+Stanford,1,Cincinnati,5,Stanford,2001,2,1,Stanford
+Providence,4,South Dakota State,13,Providence,2022,0,1,Providence
+Virginia Tech,5,Illinois,12,Virginia Tech,2007,0,1,Virginia Tech
+UTEP,7,Iowa,2,Iowa,1987,1,0,Iowa
+New Mexico,7,Stanford,10,Stanford,2014,0,0,Stanford
+Oklahoma,1,North Carolina A&T,16,Oklahoma,1985,0,1,Oklahoma
+Creighton,6,Baylor,3,Creighton,2023,1,1,Creighton
+Wisconsin,7,Texas,10,Texas,1997,0,0,Texas
+St. John's (NY),6,Wichita State,11,St. John's (NY),1987,0,1,St. John's (NY)
+Tennessee,6,Ohio State,2,Tennessee,2010,2,1,Tennessee
+Indiana,1,Auburn,8,Indiana,1987,1,1,Indiana
+Florida State,9,Michigan,3,Michigan,2018,3,0,Michigan
+Purdue,3,St. Peter's,15,St. Peter's,2022,2,1,Purdue
+Kansas,1,Oregon,2,Kansas,2002,3,1,Kansas
+Cincinnati,6,UCLA,3,UCLA,2017,1,0,UCLA
+Arizona,1,Illinois State,9,Arizona,1998,1,1,Arizona
+Vanderbilt,7,Pitt,2,Vanderbilt,1988,1,1,Vanderbilt
+Villanova,2,Oklahoma,2,Villanova,2016,4,1,Villanova
+Gonzaga,5,McNeese State,12,Gonzaga,2024,0,1,Gonzaga
+Xavier,7,Vanderbilt,10,Xavier,1997,0,1,Xavier
+Duke,1,California,8,Duke,2010,1,1,Duke
+Gonzaga,1,Arkansas,4,Arkansas,2022,2,0,Arkansas
+Iowa,7,Duke,2,Duke,1991,1,0,Duke
+UNC,1,LSU,8,UNC,2009,1,1,UNC
+Arizona,5,Texas,4,Arizona,2011,1,1,Arizona
+Arizona,1,Oklahoma,1,Oklahoma,1988,4,1,Arizona
+Creighton,6,Central Michigan,11,Central Michigan,2003,0,1,Creighton
+Illinois,6,Long Beach State,11,Illinois,1993,0,1,Illinois
+Virginia,4,Furman,13,Furman,2023,0,1,Virginia
+Stanford,6,Utah,2,Utah,1997,2,0,Utah
+Texas,7,Michigan,2,Michigan,2014,1,0,Michigan
+NC State,6,Iowa,11,NC State,1986,0,1,NC State
+Texas Tech,3,Montana State,14,Texas Tech,2022,0,1,Texas Tech
+Grand Canyon,12,Alabama,4,Alabama,2024,1,0,Alabama
+Michigan State,2,Bradley,15,Michigan State,2019,0,1,Michigan State
+Georgetown,6,South Florida,11,Georgetown,1992,0,1,Georgetown
+Xavier,11,Florida State,3,Xavier,2017,1,1,Xavier
+Auburn,1,Winthrop,16,Auburn,1999,0,1,Auburn
+UCLA,1,Xavier,3,UCLA,2008,3,1,UCLA
+UConn,7,St. Joseph's,10,UConn,2014,0,1,UConn
+Saint Louis,5,NC State,12,Saint Louis,2014,0,0,NC State
+Florida,6,Weber State,14,Florida,1999,1,1,Florida
+Wisconsin,8,Virginia Tech,9,Wisconsin,2017,0,1,Wisconsin
+BYU,10,Arizona,2,Arizona,1991,1,0,Arizona
+Kentucky,1,Wisconsin,1,Wisconsin,2015,4,0,Wisconsin
+Minnesota,11,Siena,14,Minnesota,1989,1,1,Minnesota
+Michigan State,7,Marquette,2,Michigan State,2023,1,0,Marquette
+UConn,5,Utah State,12,UConn,2000,0,1,UConn
+Charlotte,7,Utah,2,Utah,1997,1,0,Utah
+Duke,1,Temple,6,Duke,1999,3,1,Duke
+Kentucky,1,UMass,1,Kentucky,1996,4,0,UMass
+Gonzaga,1,Florida State,4,Gonzaga,2019,2,0,Florida State
+Michigan State,7,Colorado,10,Michigan State,2003,0,1,Michigan State
+Tennessee,8,Charlotte,9,Charlotte,2001,0,1,Tennessee
+Loyola (IL),11,Tennessee,3,Loyola (IL),2018,1,1,Loyola (IL)
+Tennessee,3,Wright State,14,Tennessee,2018,0,1,Tennessee
+Ohio State,1,Towson,16,Ohio State,1991,0,1,Ohio State
+New Orleans,8,Xavier,9,Xavier,1993,0,0,Xavier
+Florida,5,Illinois,4,Florida,2000,1,1,Florida
+Dayton,7,Arizona,2,Arizona,2024,1,0,Arizona
+Oregon,1,Holy Cross,16,Oregon,2016,0,1,Oregon
+Louisville,4,Idaho,13,Louisville,1990,0,1,Louisville
+USC,6,Boston College,3,USC,2001,1,1,USC
+Memphis,2,Cal State Northridge,15,Memphis,2009,0,1,Memphis
+Charlotte,7,Iowa State,10,Iowa State,1992,0,1,Charlotte
+Texas,6,Mississippi State,3,Texas,2002,1,0,Mississippi State
+Villanova,2,Delaware,15,Villanova,2022,0,1,Villanova
+Arizona,1,Houston,5,Houston,2022,2,0,Houston
+Oklahoma State,7,Kent State,10,Kent State,2002,0,0,Kent State
+Stanford,3,Purdue,2,Stanford,1998,2,0,Purdue
+UConn,2,Hampton,15,UConn,2002,0,1,UConn
+Texas Tech,3,Georgetown,2,Georgetown,1996,2,0,Georgetown
+Colorado,8,UConn,9,UConn,2016,0,0,UConn
+Louisville,7,Gonzaga,10,Gonzaga,2000,0,0,Gonzaga
+Saint Mary's,5,UConn,4,UConn,2023,1,0,UConn
+California,8,Fresno State,9,Fresno State,2001,0,0,Fresno State
+Maryland,5,UNLV,4,UNLV,1986,1,1,Maryland
+Purdue,6,Gonzaga,10,Purdue,2000,2,1,Purdue
+Kentucky,1,Wake Forest,9,Kentucky,2010,1,1,Kentucky
+Rhode Island,11,Syracuse,3,Rhode Island,1988,1,0,Syracuse
+Texas Tech,3,Michigan,2,Texas Tech,2019,2,1,Texas Tech
+Baylor,3,Sam Houston,14,Baylor,2010,0,1,Baylor
+Houston,5,Illinois,4,Houston,2022,1,1,Houston
+Tulsa,6,UTEP,11,UTEP,1985,0,1,Tulsa
+Miami (FL),10,Auburn,2,Miami (FL),2022,1,0,Auburn
+Michigan State,1,Valparaiso,16,Michigan State,2000,0,1,Michigan State
+Arizona State,6,Temple,11,Arizona State,2009,0,1,Arizona State
+Wisconsin,8,Purdue,6,Wisconsin,2000,3,1,Wisconsin
+Michigan State,1,Utah,8,Michigan State,2000,1,1,Michigan State
+Iowa State,6,Ohio State,11,Ohio State,2019,0,1,Iowa State
+Purdue,6,Oklahoma,3,Purdue,2000,1,1,Purdue
+Kansas,1,Creighton,9,Kansas,2022,1,1,Kansas
+Florida,1,Pitt,9,Florida,2014,1,1,Florida
+Florida Atlantic,9,Tennessee,4,Florida Atlantic,2023,2,1,Florida Atlantic
+Michigan State,1,Saint Louis,9,Michigan State,2012,1,1,Michigan State
+Kentucky,5,Davidson,12,Kentucky,2018,0,1,Kentucky
+UNC,1,Kansas,2,UNC,1993,4,1,UNC
+Auburn,8,UNLV,4,Auburn,1986,2,1,Auburn
+Wichita State,9,Ohio State,2,Wichita State,2013,3,0,Ohio State
+Georgia Tech,4,Southern,13,Southern,1993,0,1,Georgia Tech
+Texas,6,Boston College,11,Texas,2002,0,1,Texas
+Houston,6,San Diego State,11,Houston,2018,0,1,Houston
+Minnesota,1,Temple,9,Minnesota,1997,1,1,Minnesota
+Penn State,7,UNC,2,Penn State,2001,1,0,UNC
+Temple,7,San Diego State,2,San Diego State,2011,1,0,San Diego State
+South Carolina,3,Richmond,14,Richmond,1998,0,1,South Carolina
+Kentucky,2,St. Peter's,15,St. Peter's,2022,0,1,Kentucky
+Memphis,5,Drexel,12,Drexel,1996,0,1,Memphis
+Butler,7,South Alabama,10,Butler,2008,0,1,Butler
+Michigan State,7,Virginia,2,Michigan State,2015,1,1,Michigan State
+Florida State,3,Florida Gulf Coast,14,Florida State,2017,0,1,Florida State
+Houston,1,Northern Kentucky,16,Houston,2023,0,1,Houston
+Pitt,3,Oakland,14,Pitt,2010,0,1,Pitt
+Houston,1,Texas A&M,9,Houston,2024,1,1,Houston
+Kentucky,1,IU Indianapolis,16,Kentucky,2003,0,1,Kentucky
+Villanova,1,Lafayette,16,Villanova,2015,0,1,Villanova
+Kentucky,2,Abilene Christian,15,Kentucky,2019,0,1,Kentucky
+UNC,1,Michigan State,9,UNC,2024,1,1,UNC
+Indiana,4,Kent State,13,Kent State,2001,0,1,Indiana
+Michigan State,5,Cincinnati,4,Cincinnati,1992,1,0,Cincinnati
+Kentucky,2,Holy Cross,15,Kentucky,2001,0,1,Kentucky
+Michigan,7,Oklahoma State,10,Michigan,2017,0,1,Michigan
+Georgetown,1,Lehigh,16,Georgetown,1985,0,1,Georgetown
+St. John's (NY),1,Montana State,16,St. John's (NY),1986,0,1,St. John's (NY)
+Arizona,1,Gonzaga,9,Arizona,2003,1,1,Arizona
+Duke,2,Louisiana-Monroe,15,Duke,1991,0,1,Duke
+Arizona,1,Vermont,16,Arizona,2003,0,1,Arizona
+Cincinnati,6,Florida State,3,Cincinnati,2012,1,1,Cincinnati
+Xavier,7,Oklahoma,2,Oklahoma,2002,1,0,Oklahoma
+Kansas,1,Portland State,16,Kansas,2008,0,1,Kansas
+VCU,11,Butler,8,Butler,2011,4,1,VCU
+UNC,1,Florida Gulf Coast,16,UNC,2016,0,1,UNC
+Iowa,2,Santa Clara,15,Iowa,1987,0,1,Iowa
+Princeton,8,Villanova,9,Villanova,1991,0,1,Princeton
+La Salle,4,Southern Miss,13,La Salle,1990,0,1,La Salle
+Washington State,7,Iowa State,2,Iowa State,2024,1,0,Iowa State
+Temple,5,South Florida,12,South Florida,2012,0,0,South Florida
+Iowa,10,Tennessee,2,Tennessee,2019,1,0,Tennessee
+Syracuse,2,Bucknell,15,Syracuse,1989,0,1,Syracuse
+Virginia,1,Coastal Carolina,16,Virginia,2014,0,1,Virginia
+Illinois,7,Miami (FL),2,Miami (FL),2013,1,0,Miami (FL)
+Florida State,4,Vermont,13,Florida State,2019,0,1,Florida State
+UNC,1,Rhode Island,8,UNC,1993,1,1,UNC
+Arizona,8,Purdue,9,Purdue,2007,0,1,Arizona
+Butler,5,Maryland,4,Butler,2007,1,1,Butler
+Alabama,7,Arizona,2,Alabama,1990,1,1,Alabama
