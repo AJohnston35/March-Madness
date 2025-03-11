@@ -1,3 +1,4 @@
+import random
 import joblib
 import pandas as pd
 from helper import get_data, preprocess_data
@@ -6,40 +7,67 @@ tournaments = pd.read_csv('tournament_history/all_tournaments.csv')
 
 all_data = []
 
-for year in range(2024, 1985, -1):
-    print(year)
+for year in range(2023, 1985, -1):
     all_data.append(get_data(year))
 
 all_data = pd.concat(all_data)
 
 processed_data = []
 
-for year in range(2024, 1985, -1):
+for year in range(2023, 1985, -1):
+    print(year)
+
     tournaments_year = tournaments[tournaments['year'] == year]
-    for index, row in tournaments_year.iterrows():
-        print(row['team1'], row['team2'])
-        team1_data = all_data[(all_data['school'] == row['team1']) & (all_data['year'] == row['year'])]
-        team2_data = all_data[(all_data['school'] == row['team2']) & (all_data['year'] == row['year'])]
-        processed_data_entry = preprocess_data(team1_data, team2_data, row['round'])
-        processed_data_entry['team1'] = row['team1']
-        processed_data_entry['team2'] = row['team2']
-        processed_data_entry['seed1'] = row['seed1']
-        processed_data_entry['seed2'] = row['seed2']
-        processed_data_entry['score1'] = row['score1']
-        processed_data_entry['score2'] = row['score2']
-        processed_data_entry['winner'] = row['winner']
-        processed_data.append(processed_data_entry)
 
-processed_data = pd.concat(processed_data)
+    # Filter all_data for the current year to avoid extra matches
+    yearly_data = all_data[all_data['year'] == year]
 
-processed_data.to_csv('full_processed_data.csv', index=False)
+    # Merge tournament data with all_data for both teams
+    team1_df = tournaments_year.merge(
+        yearly_data, left_on=['team1'], right_on=['school']
+    )
+    team2_df = tournaments_year.merge(
+        yearly_data, left_on=['team2'], right_on=['school']
+    )
+
+    team1_df = team1_df.drop(columns=['region','team1','team2','seed1','seed2', 'score1', 'score2'])
+    team2_df = team2_df.drop(columns=['region','round','team1','team2','winner', 'seed1', 'seed2', 'score1', 'score2'])
+
+    team1_df['year'] = year
+    team2_df['year'] = year
+
+    team1_df = team1_df.drop(columns=['year_x','year_y'])
+    team2_df = team2_df.drop(columns=['year_x','year_y'])
+
+    # Process all matchups at once
+    processed = preprocess_data(team1_df, team2_df)
+
+    # Ensure processed data has the same number of rows as tournaments_year
+    processed = processed.iloc[:len(tournaments_year)].copy()
+
+    # Add relevant columns from tournaments_year
+    processed['team1'] = tournaments_year['team1'].values
+    processed['team2'] = tournaments_year['team2'].values
+    processed['seed1'] = tournaments_year['seed1'].values
+    processed['seed2'] = tournaments_year['seed2'].values
+    processed['score1'] = tournaments_year['score1'].values
+    processed['score2'] = tournaments_year['score2'].values
+    processed['winner'] = tournaments_year['winner'].values
+
+    processed_data.append(processed)
+
+# Combine all processed data into a single DataFrame
+processed_data = pd.concat(processed_data, ignore_index=True)
+
 
 # Create a new column for the target variable which is 1 if score1 > score2 and 0 if not
 processed_data['target'] = (processed_data['score1'] > processed_data['score2']).astype(int)
 
-subset_df = processed_data[['team1', 'seed1', 'team2', 'seed2', 'winner', 'year', 'round']]
+subset_df = processed_data[['team1', 'seed1', 'team2', 'seed2', 'winner', 'round']]
 
-processed_data = processed_data.drop(columns=['seed1','seed2','team1','team2','score1','score2','winner'])
+processed_data = processed_data.drop(columns=['seed1','seed2','team1','team2','score1','score2','winner', 'g_diff', 'w_diff'])
+
+processed_data.to_csv('full_processed_data.csv', index=False)
 
 print(processed_data['target'])
 

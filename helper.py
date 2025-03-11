@@ -108,15 +108,16 @@ def get_data(year):
     
     return merged_df
 
-def preprocess_data(team1_df, team2_df, round):
+def preprocess_data(team1_df, team2_df):
     # Give team2 columns, besides year, a _team2 suffix
     team2_df = team2_df.rename(columns=lambda x: x + '_team2' if x != 'year' else x)
     
     # Merge the dataframes, and give team2 df a _team2 suffix
     merged_df = team1_df.merge(team2_df, on=['year'], how='left')
-    
-    merged_df['round'] = round
-    
+
+    # Drop year_y and remove _x from the other year column
+    merged_df = merged_df.drop(columns=['year'])
+
     round_mapping = {
         'First Round': 0,
         'Second Round': 1,
