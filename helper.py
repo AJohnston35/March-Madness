@@ -108,7 +108,7 @@ def get_data(year):
     
     return merged_df
 
-def preprocess_data(team1_df, team2_df):
+def preprocess_data(team1_df, team2_df, round):
     # Give team2 columns, besides year, a _team2 suffix
     team2_df = team2_df.rename(columns=lambda x: x + '_team2' if x != 'year' else x)
     
@@ -127,7 +127,9 @@ def preprocess_data(team1_df, team2_df):
         'Championship': 5
     }
 
-    merged_df['round'] = merged_df['round'].map(round_mapping)
+    mapped_round = round_mapping.get(round, -1)  # Default to -1 if round is not found
+
+    merged_df['round'] = mapped_round
     
     for column in merged_df.columns:
         if '%' in column:
@@ -140,6 +142,6 @@ def preprocess_data(team1_df, team2_df):
                     merged_df[diff_column] = merged_df[column] - merged_df[base_column]
                     merged_df = merged_df.drop(columns=[column, base_column])
                     
-    merged_df = merged_df.drop(columns=['school','conf','school_team2','conf_team2','rk_diff'])
+    merged_df = merged_df.drop(columns=['school','conf','school_team2','conf_team2','rk_diff','w_diff','g_diff'])
                 
     return merged_df
