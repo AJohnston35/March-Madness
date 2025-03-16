@@ -2,12 +2,62 @@ import sys
 import os
 import csv
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                            QLabel, QComboBox, QPushButton, QFrame, QGridLayout, QSizePolicy)
-from PyQt5.QtGui import QPixmap, QColor, QLinearGradient, QPainter, QFont, QIcon
-from PyQt5.QtCore import Qt, QSize, QRect
+                            QLabel, QComboBox, QPushButton, QFrame, QGridLayout, QSizePolicy,
+                            QMessageBox)
+from PyQt5.QtGui import QPixmap, QColor, QLinearGradient, QPainter, QFont, QIcon, QPen
+from PyQt5.QtCore import Qt, QSize, QRect, QTimer, QUrl, QObject, pyqtSignal, pyqtSlot
+from PyQt5.QtNetwork import QNetworkRequest, QNetworkAccessManager, QNetworkReply
 import joblib
+import pandas as pd
+info = pd.read_csv('data/game_results/games_2025.csv')
 
-from helper import get_data, preprocess_data  # Import your data functions
+from helper import get_data, merge_data
+
+def get_team_color(team):
+    team_data = info[info['team_location'] == team]
+    hex_color = str(team_data['team_color'].iloc[0])
+    if is_dark_color(hex_color):
+        hex_color = str(team_data['team_alternate_color'].iloc[0])
+    return "#" + hex_color, "#FFFFFF"
+
+def is_dark_color(hex_color, threshold=30):
+    """
+    Check if a hex color is black or very dark
+    
+    Parameters:
+    -----------
+    hex_color : str
+        Hex color code (with or without # prefix)
+    threshold : int
+        RGB value below which a color is considered dark (0-255)
+        
+    Returns:
+    --------
+    bool
+        True if the color is dark, False otherwise
+    """
+    # Remove # if present
+    hex_color = hex_color.lstrip('#')
+    
+    # Convert hex to RGB
+    try:
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+    except (ValueError, IndexError):
+        # Invalid hex color
+        return False
+    
+    # Check if all RGB values are below threshold
+    return all(value < threshold for value in (r, g, b))
+
+def get_logo_url(team_name):
+    logo_url = info[info['team_location'] == team_name]
+    url = logo_url['team_logo'].iloc[0]        
+    return url
+
+# Default team colors for teams not in the dictionary
+DEFAULT_TEAM_COLOR = ('#333333', '#FFFFFF')  # Dark gray and white
 
 class TeamStats:
     def __init__(self, team='', year='', conference='', wins=0, losses=0, points=0.0, 
@@ -35,9 +85,18 @@ class TeamSideWidget(QWidget):
         super().__init__(parent)
         self.is_left = is_left
         self.parent_app = parent
+        self.team_colors = DEFAULT_TEAM_COLOR
         
         # Set side colors
         self.side_colors = (QColor("#2E2C2B"), QColor("#000000")) if is_left else (QColor("#6A6260"), QColor("#86807F"))
+        self.win_gradient = False
+        self.win_probability = 0.0
+        
+        # Border animation properties
+        self.border_opacity = 0.0
+        self.border_animation_timer = QTimer(self)
+        self.border_animation_timer.timeout.connect(self.animate_border)
+        self.border_animation_direction = 1  # 1 for increasing, -1 for decreasing
         
         # Main layout with more spacing for centered appearance
         self.layout = QVBoxLayout()
@@ -45,7 +104,17 @@ class TeamSideWidget(QWidget):
         self.layout.setSpacing(20)  # Increase spacing between elements
         self.setLayout(self.layout)
         
-        # Year selector
+        # Rest of your initialization code...
+        # Top section layout
+        top_layout = QHBoxLayout()
+        
+        # Conference logo - moved to outer corner and MUCH larger
+        self.conf_logo_label = QLabel()
+        self.conf_logo_label.setAlignment(Qt.AlignCenter)
+        self.conf_logo_label.setFixedSize(120, 120)  # Much larger conference logo
+        self.conf_logo_label.setStyleSheet("background-color: transparent; color: white; font-size: 14px;")
+        
+        # Year selector - moved to inner corner
         year_layout = QHBoxLayout()
         year_label = QLabel("Year:")
         year_label.setStyleSheet("background-color: transparent; color: white; font-weight: bold;")
@@ -62,11 +131,22 @@ class TeamSideWidget(QWidget):
                 background-color: #333333;
             }
         """)
-
         year_layout.addWidget(year_label)
         year_layout.addWidget(self.year_combo)
-        year_layout.addStretch()
-        self.layout.addLayout(year_layout)
+        
+        # Position based on side (left or right)
+        if self.is_left:
+            # For left side: conf logo on left, year on right
+            top_layout.addWidget(self.conf_logo_label)
+            top_layout.addStretch(1)
+            top_layout.addLayout(year_layout)
+        else:
+            # For right side: year on left, conf logo on right
+            top_layout.addLayout(year_layout)
+            top_layout.addStretch(1) 
+            top_layout.addWidget(self.conf_logo_label)
+            
+        self.layout.addLayout(top_layout)
         
         # Add stretch to push logo to center vertically
         self.layout.addStretch(1)
@@ -75,7 +155,7 @@ class TeamSideWidget(QWidget):
         logo_container = QHBoxLayout()
         self.logo_label = QLabel()
         self.logo_label.setAlignment(Qt.AlignCenter)
-        self.logo_label.setMinimumSize(350, 350)  # Increased size for larger logos
+        self.logo_label.setMinimumSize(400, 400)  # Increased size for larger logos
         self.logo_label.setStyleSheet("background-color: transparent;")
         
         logo_container.addStretch(1)
@@ -83,6 +163,17 @@ class TeamSideWidget(QWidget):
         logo_container.addStretch(1)
         
         self.layout.addLayout(logo_container)
+        
+        # Win probability label with enhanced style for better visibility
+        self.probability_label = QLabel("")
+        self.probability_label.setAlignment(Qt.AlignCenter)
+        self.probability_label.setStyleSheet("""
+            color: white; 
+            font-size: 18px; 
+            font-weight: bold; 
+            background-color: transparent;
+            padding: 10px;
+        """)
         
         # Add stretch to push logo to center vertically
         self.layout.addStretch(1)
@@ -107,7 +198,150 @@ class TeamSideWidget(QWidget):
         # Connect signals
         self.year_combo.currentTextChanged.connect(self.year_changed)
         self.team_combo.currentTextChanged.connect(self.team_changed)
+
+    def animate_border(self):
+        # Update border opacity based on direction
+        self.border_opacity += 0.05 * self.border_animation_direction
         
+        # Reverse direction at limits
+        if self.border_opacity >= 1.0:
+            self.border_opacity = 1.0
+            self.border_animation_direction = -1
+        elif self.border_opacity <= 0.3:
+            self.border_opacity = 0.3
+            self.border_animation_direction = 1
+            
+        # Update the widget to repaint with new opacity
+        self.update()
+    
+    def set_win_gradient(self, is_winner, probability):
+        self.win_gradient = is_winner
+        self.win_probability = probability
+        
+        # Set probability text with enhanced style for winner
+        if is_winner:
+            self.probability_label.setText(f"Win Probability: {probability:.1f}%")
+            self.probability_label.setStyleSheet("""
+                color: gold; 
+                font-size: 24px; 
+                font-weight: bold; 
+                background-color: rgba(0, 0, 0, 0.3);
+                border-radius: 12px;
+                padding: 10px;
+            """)
+            
+            # Start border animation for winner
+            if not self.border_animation_timer.isActive():
+                self.border_opacity = 0.3  # Starting opacity
+                self.border_animation_timer.start(50)  # 50ms interval for smooth animation
+        else:
+            self.probability_label.setText(f"Win Probability: {probability:.1f}%")
+            self.probability_label.setStyleSheet("""
+                color: white; 
+                font-size: 18px; 
+                font-weight: bold; 
+                background-color: transparent;
+                padding: 10px;
+            """)
+            
+            # Stop border animation for non-winner
+            if self.border_animation_timer.isActive():
+                self.border_animation_timer.stop()
+        
+        # Update the background
+        self.update()
+    
+    def paintEvent(self, event):
+        # Create painter
+        painter = QPainter(self)
+        
+        # Create gradient background
+        gradient = QLinearGradient()
+        
+        # Get team primary and secondary colors
+        primary_color = QColor(self.team_colors[0])
+        secondary_color = QColor(self.team_colors[1])
+        
+        # Adjust opacity to make colors less intense
+        primary_color.setAlpha(180)
+        secondary_color.setAlpha(150)
+        
+        # Set gradient direction based on side
+        if self.is_left:
+            gradient.setStart(self.width(), self.height() / 2)
+            gradient.setFinalStop(0, self.height() / 2)
+        else:
+            gradient.setStart(0, self.height() / 2)
+            gradient.setFinalStop(self.width(), self.height() / 2)
+        
+        # Set gradient colors
+        black_overlay = QColor("#000000")
+        black_overlay.setAlpha(180)
+        
+        if self.is_left:
+            gradient.setColorAt(0, primary_color)
+            gradient.setColorAt(1, black_overlay)
+        else:
+            gradient.setColorAt(0, black_overlay)
+            gradient.setColorAt(1, primary_color)
+        
+        # Fill background with gradient
+        painter.fillRect(self.rect(), gradient)
+        
+        # Draw animated border for winner
+        if self.win_gradient:
+            # Create a golden border color with dynamic opacity
+            border_color = QColor(255, 215, 0, int(255 * self.border_opacity))  # Gold color
+            
+            # Set pen for drawing border
+            pen = QPen(border_color)
+            pen.setWidth(6)  # Thicker border
+            painter.setPen(pen)
+            
+            # Draw border around the widget with rounded corners
+            painter.drawRoundedRect(3, 3, self.width() - 6, self.height() - 6, 15, 15)
+            
+            # Add a subtle glow effect
+            glow_pen = QPen(QColor(255, 215, 0, int(50 * self.border_opacity)))
+            glow_pen.setWidth(10)
+            painter.setPen(glow_pen)
+            painter.drawRoundedRect(5, 5, self.width() - 10, self.height() - 10, 15, 15)
+
+    def update_conference_logo(self, conference):
+        if not conference:
+            self.conf_logo_label.clear()
+            return
+            
+        # Format conference name for file path
+        conf_name = conference.lower().replace(' ', '_')
+        logo_path = os.path.join("assets", "logos", f"{conf_name}.png")
+        
+        # Create a circular background for the logo
+        self.conf_logo_label.setStyleSheet("""
+            background-color: rgba(255, 255, 255, 0.4); /* semi-transparent white */
+            border: 2px solid rgba(255, 255, 255, 0.1); /* more visible white border */
+            border-radius: 60px; /* half of width/height for perfect circle */
+            padding: 10px;
+        """)
+        
+        # Try to load the conference logo
+        pixmap = QPixmap(logo_path)
+        if not pixmap.isNull():
+            pixmap = pixmap.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.conf_logo_label.setPixmap(pixmap)
+        else:
+            # Display text if logo not found
+            self.conf_logo_label.setText(conference)
+            self.conf_logo_label.setStyleSheet("""
+                color: white; 
+                font-size: 18px; 
+                font-weight: bold; 
+                background-color: rgba(255, 255, 255, 0.3);
+                border: 2px solid rgba(255, 255, 255, 0.5);
+                border-radius: 60px;
+                padding: 10px;
+            """)
+    
     def year_changed(self, year):
         if not year:
             return
@@ -148,52 +382,92 @@ class TeamSideWidget(QWidget):
         else:
             self.parent_app.right_team = team
             
+        # Update team colors
+        self.update_team_colors(team)
+        
         # Update team logo
         self.update_logo(team)
         
         # Update stats and UI
         self.parent_app.update_team_stats()
+        
+        # Reset win gradient when team changes
+        self.win_gradient = False
+        self.win_probability = 0.0
+        self.probability_label.setText("")
+        
+        # Stop border animation if running
+        if self.border_animation_timer.isActive():
+            self.border_animation_timer.stop()
             
+        self.update()
+    
+    def update_team_colors(self, team):
+        self.team_colors = get_team_color(team)
+        # Update the UI with new colors
+        self.update()
+    
     def update_logo(self, team):
         if not team:
             # If no team selected, show placeholder
-            self.logo_label.setText(team[0] if team else "")
+            self.logo_label.setText("")
             self.logo_label.setStyleSheet("color: white; font-size: 180px; font-weight: bold; background-color: transparent;")
             return
-            
-        # Normalize team name to match filename format (same as Flutter code)
-        normalized_name = self.parent_app.normalize_team_name(team)
-        logo_path = os.path.join( "assets", "logos", f"{normalized_name}.png")
         
-        # Try to load the image, use placeholder if not found
-        pixmap = QPixmap(logo_path)
-        if not pixmap.isNull():
-            # Scale to larger size for better visibility (400x400)
-            pixmap = pixmap.scaled(400, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.logo_label.setPixmap(pixmap)
-            self.logo_label.setText("")
-        else:
-            # Use first letter as placeholder with larger font
+        try:
+            # Get normalized team name
+            logo_url = get_logo_url(team)
+            
+            # Create network request
+            self.network_manager = QNetworkAccessManager()
+            request = QNetworkRequest(QUrl(logo_url))
+            
+            # Connect signal to handle the finished download
+            self.network_manager.finished.connect(self.handle_logo_response)
+            
+            # Start the request
+            self.reply = self.network_manager.get(request)
+            
+            # Store the team name to use in the callback
+            self.current_team = team
+            
+            # Show a loading indicator while waiting
+            self.logo_label.setText("Loading...")
+            
+        except Exception as e:
+            print(f"Error loading logo for {team}: {str(e)}")
+            # Use first letter as placeholder
             self.logo_label.setText(team[0] if team else "")
-            self.logo_label.setStyleSheet("color: white; font-size: 180px; font-weight: bold; background-color: transparent;")
-    
-    def paintEvent(self, event):
-        # Create gradient background
-        painter = QPainter(self)
-        gradient = QLinearGradient()
-        
-        if self.is_left:
-            gradient.setStart(self.width(), self.height() / 2)
-            gradient.setFinalStop(0, self.height() / 2)
-        else:
-            gradient.setStart(0, self.height() / 2)
-            gradient.setFinalStop(self.width(), self.height() / 2)
+            self.logo_label.setStyleSheet(f"color: {self.team_colors[0] if hasattr(self, 'team_colors') and self.team_colors else 'white'}; font-size: 180px; font-weight: bold; background-color: transparent;")
             
-        gradient.setColorAt(0, self.side_colors[0])
-        gradient.setColorAt(1, self.side_colors[1])
+    @pyqtSlot(QNetworkReply)
+    def handle_logo_response(self, reply):
+        pixmap = QPixmap()
         
-        painter.fillRect(self.rect(), gradient)
+        if reply.error() == QNetworkReply.NoError:
+            # Read image data and load into pixmap
+            image_data = reply.readAll()
+            pixmap.loadFromData(image_data)
+            
+            if not pixmap.isNull():
+                # Scale to larger size for better visibility (400x400)
+                pixmap = pixmap.scaled(400, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self.logo_label.setPixmap(pixmap)
+                self.logo_label.setText("")
+            else:
+                # Fallback if image data couldn't be loaded
+                self.logo_label.setText(self.current_team[0] if self.current_team else "")
+                self.logo_label.setStyleSheet(f"color: {self.team_colors[0] if hasattr(self, 'team_colors') and self.team_colors else 'white'}; font-size: 180px; font-weight: bold; background-color: transparent;")
+        else:
+            # Handle error
+            print(f"Error downloading logo for {self.current_team}: {reply.errorString()}")
+            # Use first letter as placeholder with larger font
+            self.logo_label.setText(self.current_team[0] if self.current_team else "")
+            self.logo_label.setStyleSheet(f"color: {self.team_colors[0] if hasattr(self, 'team_colors') and self.team_colors else 'white'}; font-size: 180px; font-weight: bold; background-color: transparent;")
         
+        # Clean up
+        reply.deleteLater()
+
 class StatsRow(QWidget):
     def __init__(self, label, left_value, right_value, left_is_better, parent=None):
         super().__init__(parent)
@@ -247,8 +521,8 @@ class NCAATeamMatchupApp(QMainWindow):
         # Initialize data
         self.left_team = ""
         self.right_team = ""
-        self.left_year = "2024"
-        self.right_year = "2024"
+        self.left_year = "2025"
+        self.right_year = "2025"
         self.selected_round = "First Round"
         
         self.left_team_stats = TeamStats()
@@ -261,8 +535,7 @@ class NCAATeamMatchupApp(QMainWindow):
         self.available_years = [
             "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", 
             "2015", "2014", "2013", "2012", "2011", "2010", "2009", "2008", "2007", "2006", 
-            "2005", "2004", "2003", "2002", "2001", "2000", "1999", "1998", "1997", "1996", 
-            "1995", "1994", "1993", "1992", "1991", "1990", "1989", "1988", "1987", "1986", "1985"
+            "2005", "2004", "2003"
         ]
         
         self.tournament_rounds = [
@@ -287,13 +560,13 @@ class NCAATeamMatchupApp(QMainWindow):
         header.setStyleSheet("background-color: black;")
         header_layout = QHBoxLayout()
         header.setLayout(header_layout)
-        header.setFixedHeight(80)
+        header.setFixedHeight(120)
         
         # Logo and title
         logo_label = QLabel()
         logo_pixmap = QPixmap("assets/logos/March_Madness_logo.png")
         if not logo_pixmap.isNull():
-            logo_pixmap = logo_pixmap.scaled(100, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_pixmap = logo_pixmap.scaled(300, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             logo_label.setPixmap(logo_pixmap)
         
         title_label = QLabel("Matchup Prediction")
@@ -319,6 +592,9 @@ class NCAATeamMatchupApp(QMainWindow):
                 background-color: black;
             }
         """)
+        
+        # NEW - Connect round changed signal
+        self.round_combo.currentTextChanged.connect(self.round_changed)
         
         round_layout.addWidget(round_label)
         round_layout.addWidget(self.round_combo)
@@ -397,10 +673,16 @@ class NCAATeamMatchupApp(QMainWindow):
         self.setStyleSheet("QMainWindow {background-color: black; margin: 0; padding: 0;}")
         main_widget.setStyleSheet("QWidget {background-color: black; margin: 0; padding: 0;}")
     
+    def round_changed(self, round_text):
+        self.selected_round = round_text
+        # Reset the prediction highlights
+        self.left_team_widget.set_win_gradient(False, 0.0)
+        self.right_team_widget.set_win_gradient(False, 0.0)
+    
     def load_teams_from_csv(self):
         try:
             # Open and read the CSV file
-            with open('team_ratings/all_ratings.csv', 'r', encoding='utf-8') as file:
+            with open('assets/all_ratings.csv', 'r', encoding='utf-8') as file:
                 reader = csv.reader(file)
                 # Skip header
                 header = next(reader)
@@ -519,11 +801,6 @@ class NCAATeamMatchupApp(QMainWindow):
         self.update_team_stats()
     
     def update_team_stats(self):
-        print(f"Updating team stats for: {self.left_team} ({self.left_year}) and {self.right_team} ({self.right_year})")
-        
-        # Debug info
-        print(f"Available years in data: {', '.join(self.all_team_stats.keys())}")
-        
         # Check if selected years exist in data
         if self.left_year not in self.all_team_stats:
             print(f"WARNING: Year {self.left_year} not found in data")
@@ -534,22 +811,30 @@ class NCAATeamMatchupApp(QMainWindow):
         if (self.left_team and self.left_year in self.all_team_stats and 
             self.left_team in self.all_team_stats[self.left_year]):
             self.left_team_stats = self.all_team_stats[self.left_year][self.left_team]
-            print(f"Found stats for {self.left_team} in {self.left_year}: W-L {self.left_team_stats.wins}-{self.left_team_stats.losses}")
+            # Update conference logo for left team
+            self.left_team_widget.update_conference_logo(self.left_team_stats.conference)
         else:
             print(f"No stats found for {self.left_team} in {self.left_year} - using empty stats")
             self.left_team_stats = TeamStats()
+            self.left_team_widget.conf_logo_label.clear()
         
         # Update right team stats
         if (self.right_team and self.right_year in self.all_team_stats and 
             self.right_team in self.all_team_stats[self.right_year]):
             self.right_team_stats = self.all_team_stats[self.right_year][self.right_team]
-            print(f"Found stats for {self.right_team} in {self.right_year}: W-L {self.right_team_stats.wins}-{self.right_team_stats.losses}")
+            # Update conference logo for right team
+            self.right_team_widget.update_conference_logo(self.right_team_stats.conference)
         else:
             print(f"No stats found for {self.right_team} in {self.right_year} - using empty stats")
             self.right_team_stats = TeamStats()
+            self.right_team_widget.conf_logo_label.clear()
         
         # Update stats comparison UI
         self.update_stats_comparison()
+        
+        # Reset any prediction highlights
+        self.left_team_widget.set_win_gradient(False, 0.0)
+        self.right_team_widget.set_win_gradient(False, 0.0)
     
     def update_stats_comparison(self):
         # Clear existing stats rows
@@ -630,442 +915,133 @@ class NCAATeamMatchupApp(QMainWindow):
         )
         self.stats_grid.addWidget(net_row)
     
-    def normalize_team_name(self, team_name):
-        # Map of team name variations to their standardized filename
-        team_name_map = {
-            'Abilene Christian': 'abilene_christian_wildcats',
-            'Air Force': 'air_force_falcons',
-            'Akron': 'akron_zips',
-            'Alabama': 'alabama_crimson_tide',
-            'Alabama A&M': 'alabama_am_bulldogs',
-            'UAB': 'alabama_birmingham_blazers',
-            'Alabama State': 'alabama_state_hornets',
-            'Albany': 'albany_great_danes',
-            'Alcorn State': 'alcorn_state_braves',
-            'American': 'american_eagles',
-            'America East': 'appalachian_state_mountaineers',
-            'Appalachian State': 'appalachian_state_mountaineers',
-            'Arizona State': 'arizona_state_sun_devils',
-            'Arizona': 'arizona_wildcats',
-            'Little Rock': 'arkansas_little_rock_trojans',
-            'Arkansas Pine Bluff': 'arkansas_pine_bluff_golden_lions',
-            'Arkansas': 'arkansas_razorbacks',
-            'Arkansas State': 'arkansas_state_red_wolves',
-            'Army': 'army_west_point_black_knights',
-            'Atlantic 10': 'atlantic_10_conference',
-            'Atlantic Coast': 'atlantic_coast_conference_acc',
-            'Atlantic Sun': 'atlantic_sun_conference_asun',
-            'Auburn': 'auburn_tigers',
-            'Austin Peay': 'austin_peay_governors',
-            'Ball State': 'ball_state_cardinals',
-            'Baylor': 'baylor_bears',
-            'Bellarmine': 'bellarmine_knights',
-            'Belmont': 'belmont_bruins',
-            'Bethune-Cookman': 'bethune_cookman_wildcats',
-            'Big 12': 'big_12_conference',
-            'Big East': 'big_east_conference',
-            'Big Sky': 'big_sky_conference',
-            'Big South': 'big_south_conference',
-            'Big Ten': 'big_ten_conference',
-            'Big West': 'big_west_conference',
-            'Binghamton': 'binghamton_bearcats',
-            'Boise State': 'boise_state_broncos',
-            'Boston College': 'boston_college_eagles',
-            'Boston University': 'boston_university_terriers',
-            'Bowling Green': 'bowling_green_falcons',
-            'Bradley': 'bradley_braves',
-            'Bryant': 'bryant_bulldogs',
-            'Bucknell': 'bucknell_bison',
-            'Buffalo': 'buffalo_bulls',
-            'Butler': 'butler_bulldogs',
-            'BYU': 'byu_cougars',
-            'California Baptist': 'california_baptist_lancers',
-            'California': 'california_golden_bears',
-            'Long Beach State': 'cal_long_beach_state_49ers',
-            'Cal Poly': 'cal_poly_mustangs',
-            'Cal State Bakersfield': 'cal_state_bakersfield_roadrunners',
-            'Cal State Fullerton': 'cal_state_fullerton_titans',
-            'Campbell': 'campbell_fighting_camels',
-            'Canisius': 'canisius_golden_griffs',
-            'Central Arkansas': 'central_arkansas_bears',
-            'Central Connecticut': 'central_connecticut_blue_devils',
-            'Central Michigan': 'central_michigan_chippewas',
-            'Charleston Southern': 'charleston_southern_buccaneers',
-            'Charlotte': 'charlotte_49ers',
-            'Chattanooga': 'chattanooga_mocs',
-            'Cincinnati': 'cincinnati_bearcats',
-            'Citadel': 'citadel_bulldogs',
-            'Clemson': 'clemson_tigers',
-            'Coastal Carolina': 'coastal_carolina_chanticleers',
-            'Colgate': 'colgate_raiders',
-            'College of Charleston': 'college_of_charleston_cougars',
-            'Colonial Athletic Association': 'colonial_athletic_association',
-            'Colorado': 'colorado_buffaloes',
-            'Colorado State': 'colorado_state_rams',
-            'Conference USA': 'conference_usa',
-            'Connecticut': 'connecticut_huskies',
-            'Coppin State': 'coppin_state_eagles',
-            'Creighton': 'creighton_bluejays',
-            'Cal State Northridge': 'csun_matadors',
-            'Davidson': 'davidson_wildcats',
-            'Dayton': 'dayton_flyers',
-            'Delaware': 'delaware_fightin_blue_hens',
-            'Delaware State': 'delaware_state_hornets',
-            'Denver': 'denver_pioneers',
-            'DePaul': 'depaul_blue_demons',
-            'Drake': 'drake_bulldogs',
-            'Drexel': 'drexel_dragons',
-            'Duke': 'duke_blue_devils',
-            'Duquesne': 'duquesne_dukes',
-            'Eastern Illinois': 'eastern_illinois_panthers',
-            'Eastern Kentucky': 'eastern_kentucky_colonels',
-            'Eastern Michigan': 'eastern_michigan_eagles',
-            'Eastern Washington': 'eastern_washington_eagles',
-            'East Carolina': 'east_carolina_pirates',
-            'ETSU': 'east_tennessee_state_buccaneers',
-            'Elon': 'elon_phoenix',
-            'Evansville': 'evansville_purple_aces',
-            'Fairfield': 'fairfield_stags',
-            'FDU': 'fairleigh_dickinson_fdu_knights',
-            'FIU': 'fiu_panthers',
-            'Florida A&M': 'florida_am_rattlers',
-            'Florida Atlantic': 'florida_atlantic_owls',
-            'Florida': 'florida_gators',
-            'Florida Gulf Coast': 'florida_gulf_coast_eagles',
-            'Florida State': 'florida_state_seminoles',
-            'Fordham': 'fordham_rams',
-            'Fresno State': 'fresno_state_bulldogs',
-            'Furman': 'furman_paladins',
-            'Gardner-Webb': 'gardner_webb_runnin_bulldogs',
-            'Georgetown': 'georgetown_hoyas',
-            'George Mason': 'george_mason_patriots',
-            'George Washington': 'george_washington_colonials',
-            'Georgia': 'georgia_bulldogs',
-            'Georgia Southern': 'georgia_southern_eagles',
-            'Georgia State': 'georgia_state_panthers',
-            'Georgia Tech': 'georgia_tech_yellow_jackets',
-            'Gonzaga': 'gonzaga_bulldogs',
-            'Grambling': 'grambling_state_tigers',
-            'Grand Canyon': 'grand_canyon_antelopes',
-            'Hampton': 'hampton_pirates',
-            'Hawaii': 'hawaii_rainbow_warriors',
-            'High Point': 'high_point_panthers',
-            'Hofstra': 'hofstra_pride',
-            'Holy Cross': 'holy_cross_crusaders',
-            'Houston Baptist': 'houston_baptist_huskies',
-            'Houston': 'houston_cougars',
-            'Howard': 'howard_bison',
-            'Idaho State': 'idaho_state_bengals',
-            'Idaho': 'idaho_vandals',
-            'UIC': 'illinois_chicago_uic_flames',
-            'Illinois': 'illinois_fighting_illini',
-            'Illinois State': 'illinois_state_redbirds',
-            'Incarnate Word': 'incarnate_word_cardinals',
-            'Indiana': 'indiana_hoosiers',
-            'Indiana State': 'indiana_state_sycamores',
-            'Iona': 'iona_gaels',
-            'Iowa': 'iowa_hawkeyes',
-            'Iowa State': 'iowa_state_cyclones',
-            'Jacksonville': 'jacksonville_dolphins',
-            'Jacksonville State': 'jacksonville_state_gamecocks',
-            'Jackson State': 'jackson_state_tigers',
-            'James Madison': 'james_madison_dukes',
-            'Kansas City': 'kansas_city_umkc_roos',
-            'Kansas': 'kansas_jayhawks',
-            'Kansas State': 'kansas_state_wildcats',
-            'Kennesaw State': 'kennesaw_state_owls',
-            'Kentucky': 'kentucky_wildcats',
-            'Kent State': 'kent_state_golden_flashes',
-            'Lafayette': 'lafayette_leopards',
-            'Lamar': 'lamar_cardinals',
-            'La Salle': 'la_salle_explorers',
-            'Lehigh': 'lehigh_mountain_hawks',
-            'Le Moyne': 'le_moyne_dolphins',
-            'Liberty': 'liberty_flames',
-            'Lindenwood': 'lindenwood_lions',
-            'Lipscomb': 'lipscomb_bisons',
-            'Longwood': 'longwood_lancers',
-            'LIU': 'long_island_liu_sharks',
-            'Louisiana': 'louisiana_lafayette_ragin_cajuns',
-            'Louisiana Monroe': 'louisiana_monroe_warhawks',
-            'Louisiana Tech': 'louisiana_tech_bulldogs',
-            'Louisville': 'louisville_cardinals',
-            'Loyola (IL)': 'loyola_chicago_ramblers',
-            'Loyola Marymount': 'loyola_marymount_lions',
-            'Loyola (MD)': 'loyola_university_maryland_greyhounds',
-            'LSU': 'lsu_tigers',
-            'Maine': 'maine_black_bears',
-            'Manhattan': 'manhattan_jaspers',
-            'Marist': 'marist_red_foxes',
-            'Marquette': 'marquette_golden_eagles',
-            'Marshall': 'marshall_thundering_herd',
-            'Maryland Eastern Shore': 'maryland_eastern_shore_hawks',
-            'Maryland': 'maryland_terrapins',
-            'McNeese State': 'mcneese_state_cowboys',
-            'Memphis': 'memphis_tigers',
-            'Mercer': 'mercer_bears',
-            'Merrimack': 'merrimack_warriors',
-            'Metro Atlantic Athletic Conference':
-                'metro_atlantic_athletic_conference_maac',
-            'Miami': 'miami_hurricanes',
-            'Miami OH': 'miami_oh_redhawks',
-            'Michigan State': 'michigan_state_spartans',
-            'Michigan': 'michigan_wolverines',
-            'Middle Tennessee': 'middle_tennessee_blue_raiders',
-            'Mid American Conference': 'mid_american_conference',
-            'Mid Eastern Athletic Conference': 'mid_eastern_athletic_conference_meac',
-            'Minnesota': 'minnesota_golden_gophers',
-            'Mississippi State': 'mississippi_state_bulldogs',
-            'Mississippi Valley State': 'mississippi_valley_state_delta_devils',
-            'Missouri State': 'missouri_state_bears',
-            'Missouri': 'missouri_tigers',
-            'Missouri Valley Conference': 'missouri_valley_conference',
-            'Monmouth': 'monmouth_hawks',
-            'Montana': 'montana_grizzlies',
-            'Montana State': 'montana_state_bobcats',
-            'Morehead State': 'morehead_state_eagles',
-            'Morgan State': 'morgan_state_bears',
-            'Mountain West Conference': 'mountain_west_conference',
-            "Mount St. Mary's": "mount_st._marys_mountaineers",
-            'Murray State': 'murray_state_racers',
-            'Navy': 'navy_midshipmen',
-            'Nebraska': 'nebraska_cornhuskers',
-            'Nebraska Omaha': 'nebraska_omaha_mavericks',
-            'Nevada': 'nevada_wolf_pack',
-            'New Hampshire': 'new_hampshire_wildcats',
-            'New Jersey Institute Of Technology':
-                'new_jersey_institute_of_technology_njit_highlanders',
-            'New Mexico': 'new_mexico_lobos',
-            'New Mexico State': 'new_mexico_state_aggies',
-            'New Orleans': 'new_orleans_privateers',
-            'Niagara': 'niagara_purple_eagles',
-            'Nicholls State': 'norfolk_state_spartans',
-            'Northeastern': 'northeastern_huskies',
-            'Northeast Conference': 'northeast_conference',
-            'Northern Arizona': 'northern_arizona_lumberjacks',
-            'Northern Colorado': 'northern_colorado_bears',
-            'Northern Illinois': 'northern_illinois_huskies_300x300',
-            'Northern Iowa': 'northern_iowa_panthers',
-            'Northwestern State': 'northwestern_state_demons',
-            'Northwestern': 'northwestern_wildcats',
-            'North Alabama': 'north_alabama_lions',
-            'North Carolina A&T': 'north_carolina_at_aggies',
-            'North Carolina Central': 'north_carolina_central_eagles',
-            'NC State': 'north_carolina_state_wolfpack',
-            'UNC': 'north_carolina_tar_heels',
-            'North Dakota': 'north_dakota_fighting_hawks',
-            'North Dakota State': 'north_dakota_state_bison',
-            'North Florida': 'north_florida_ospreys',
-            'North Texas': 'north_texas_mean_green',
-            'Notre Dame': 'notre_dame_fighting_irish',
-            'Ohio': 'ohio_bobcats',
-            'Ohio State': 'ohio_state_buckeyes',
-            'Ohio Valley Conference': 'ohio_valley_conference',
-            'Oklahoma': 'oklahoma_sooners',
-            'Oklahoma State': 'oklahoma_state_cowboys',
-            'Old Dominion': 'old_dominion_monarchs',
-            'Ole Miss': 'ole_miss_rebels',
-            'Oral Roberts': 'oral_roberts_golden_eagles',
-            'Oregon': 'oregon_ducks',
-            'Oregon State': 'oregon_state_beavers',
-            'Pacific': 'pacific_tigers',
-            'Pac 12': 'pac_12',
-            'Patriot League Conference': 'patriot_league_conference',
-            'Penn State': 'penn_state_nittany_lions',
-            'Penn': 'penn_quakers',
-            'Pepperdine': 'pepperdine_waves',
-            'Pitt': 'pitt_panthers',
-            'Portland': 'portland_pilots',
-            'Portland State': 'portland_state_vikings',
-            'Prairie View AM': 'prairie_view_am_panthers',
-            'Presbyterian': 'presbyterian_blue_hose',
-            'Providence': 'providence_friars',
-            'Purdue': 'purdue_boilermakers',
-            'Queens University Of Charlotte': 'queens_university_of_charlotte_royals',
-            'Quinnipiac': 'quinnipiac_bobcats',
-            'Radford': 'radford_highlanders',
-            'Rhode Island': 'rhode_island_rams',
-            'Rice': 'rice_owls',
-            'Richmond': 'richmond_spiders',
-            'Rider': 'rider_broncs',
-            'Rutgers': 'rutgers_scarlet_knights',
-            'Sacramento State': 'sacramento_state_hornets',
-            'Sacred Heart': 'sacred_heart_pioneers',
-            'Saint Francis PA': 'saint_francis_pa_red_flash',
-            "St. Joseph's": 'saint_josephs_hawks',
-            'Saint Louis': 'saint_louis_billikens',
-            "Saint Mary's": 'saint_marys_college_gaels',
-            "St. Peter's": 'saint_peters_peacocks',
-            'Samford': 'samford_bulldogs',
-            'Sam Houston State': 'sam_houston_state_bearkats',
-            'Santa Clara': 'santa_clara_broncos',
-            'San Diego State': 'san_diego_state_aztecs',
-            'San Diego': 'san_diego_toreros',
-            'San Francisco': 'san_francisco_dons',
-            'San Jose State': 'san_jose_state_spartans',
-            'Seattle': 'seattle_redhawks',
-            'Seton Hall': 'seton_hall_pirates',
-            'Siena': 'siena_saints',
-            'SMU': 'smu_mustang',
-            'Southeastern Conference': 'southeastern_conference',
-            'Southeastern Louisiana': 'southeastern_louisiana_lions',
-            'Southeast Missouri State': 'southeast_missouri_state_redhawks',
-            'Southern Conference': 'southern_conference',
-            'Southern Illinois': 'southern_illinois_salukis',
-            'Southern Illinois University Edwardsville':
-                'southern_illinois_university_edwardsville_siue_cougars',
-            'Southern Indiana': 'southern_indiana_screaming_eagles',
-            'Southern': 'southern_jaguars',
-            'Southern Miss': 'southern_miss_golden_eagles',
-            'Southern Utah': 'southern_utah_thunderbirds',
-            'Southland Conference': 'southland_conference',
-            'Southwestern Athletic Conference': 'southwestern_athletic_conference',
-            'South Alabama': 'south_alabama_jaguars',
-            'South Carolina': 'south_carolina_gamecocks',
-            'South Carolina State': 'south_carolina_state_bulldogs',
-            'South Carolina Upstate': 'south_carolina_upstate_spartans',
-            'South Dakota': 'south_dakota_coyotes',
-            'South Dakota State': 'south_dakota_state_jackrabbits',
-            'South Florida': 'south_florida_bulls',
-            'St. Bonaventure': 'st._bonaventure_bonnies',
-            'St. Francis Brooklyn': 'st._francis_brooklyn_terriers',
-            "St. John's": 'st._johns_red_storm',
-            'St. Thomas': 'st._thomas_tommies',
-            'Stanford': 'stanford_cardinal',
-            'Stephen F. Austin': 'stephen_f._austin_lumberjacks',
-            'Stetson': 'stetson_hatters',
-            'Stonehill': 'stonehill_skyhawks',
-            'Stony Brook': 'stony_brook_seawolves',
-            'Summit League': 'summit_league',
-            'Sun Belt Conference 2020': 'sun_belt_conference_2020',
-            'Syracuse': 'syracuse_orange',
-            'Tarleton State': 'tarleton_state_texans',
-            'TCU': 'tcu_horned_frogs',
-            'Temple': 'temple_owls',
-            'Tennessee Martin': 'tennessee_martin_skyhawks',
-            'Tennessee State': 'tennessee_state_tigers',
-            'Tennessee Tech': 'tennessee_tech_golden_eagles',
-            'Tennessee': 'tennessee_volunteers',
-            'Texas A&M Commerce': 'texas_am_commerce_lions',
-            'Texas A&M Corpus Christi': 'texas_am_corpus_christi_islanders',
-            'Texas A&M': 'texas_am_university',
-            'Texas': 'texas_longhorns',
-            'Texas Rio Grande Valley': 'texas_rio_grande_valley_utrgv_vaqueros',
-            'UTSA': 'texas_sa_roadrunners',
-            'Texas Southern': 'texas_southern_tigers',
-            'Texas State': 'texas_state_bobcats',
-            'Texas Tech': 'texas_tech_red_raiders',
-            'Toledo': 'toledo_rockets',
-            'Towson': 'towson_tigers',
-            'Troy': 'troy_trojans',
-            'Tulane': 'tulane_green_wave',
-            'Tulsa': 'tulsa_golden_hurricane',
-            'UCF': 'ucf_knights',
-            'UCLA': 'ucla_bruins',
-            'UC-Davis': 'uc_davis_aggies',
-            'UC-Irvine': 'uc_irvine_anteaters',
-            'UC-Riverside': 'uc_riverside_highlanders',
-            'UCSB': 'uc_santa_barbara_gauchos',
-            'UC-San Diego': 'uc_san_diego_tritons',
-            'UMass': 'umass_amherst_minutemen',
-            'UMass Lowell': 'umass_lowell_river_hawks',
-            'UNCG': 'uncg_spartans',
-            'UNC Asheville': 'unc_asheville_bulldogs',
-            'UNC Wilmington': 'unc_wilmington_seahawks',
-            'UMBC': 'university_of_maryland_baltimore_county_umbc_retrievers',
-            'UNLV': 'unlv_rebels',
-            'USC': 'usc_trojans',
-            'Utah State': 'utah_state_aggies',
-            'Utah Tech': 'utah_tech_trailblazers',
-            'Utah': 'utah_utes',
-            'Utah Valley': 'utah_valley_wolverines',
-            'UTEP': 'utep_miners',
-            'UT Arlington': 'ut_arlington_mavericks',
-            'Valparaiso': 'valparaiso_beacons',
-            'Vanderbilt': 'vanderbilt_commodores',
-            'VCU': 'vcu_rams',
-            'Vermont': 'vermont_catamounts',
-            'Villanova': 'villanova_wildcats',
-            'Virginia': 'virginia_cavaliers',
-            'Virginia Tech': 'virginia_tech_hokies',
-            'VMI': 'vmi_keydets',
-            'Wagner': 'wagner_seahawks',
-            'Wake Forest': 'wake_forest_demon_deacons',
-            'Washington': 'washington_huskies',
-            'Washington State': 'washington_state_cougars',
-            'Weber State': 'weber_state_wildcats',
-            'Western Athletic Conference': 'western_athletic_conference',
-            'Western Carolina': 'western_carolina_catamounts',
-            'Western Illinois': 'western_illinois_leathernecks',
-            'Western Kentucky': 'western_kentucky_hilltoppers',
-            'Western Michigan': 'western_michigan_broncos',
-            'West Coast Conference': 'west_coast_conference',
-            'West Virginia': 'west_virginia_mountaineers',
-            'Wichita State': 'wichita_state_shockers',
-            'William Mary': 'william_mary_tribe',
-            'Winthrop': 'winthrop_eagles',
-            'Wisconsin': 'wisconsin_badgers',
-            'Wofford': 'wofford_terriers',
-            'Wyoming': 'wyoming_cowboys',
-            'Xavier': 'xavier_musketeers',
-            'Yale': 'yale_bulldogs',
-            'Brown': 'brown_bears',
-            'Cleveland State': 'cleveland_state_vikings',
-            'Columbia': 'columbia_lions',
-            'Cornell': 'cornell_big_red',
-            'Dartmouth': 'dartmouth_big_green',
-            'Detroit Mercy': 'detroit_mercer_hawks',
-            'Harvard': 'harvard_crimson',
-            'IUPUI': 'iupui_jaguars',
-            'Northern Kentucky': 'northern_kentucky_norse',
-            'Oakland': 'oakland_michigan_golden_grizzlies',
-            'Princeton': 'princeton_tigers',
-            'Purdue Fort Wayne': 'purdue_fort_wayne_mastodons',
-            'Robert Morris': 'robert_morris_colonials',
-            'Green Bay': 'wisconsin_green_bay_phoenix',
-            'Milwaukee': 'wisconsin_milwaukee_panthers',
-            'Wright State': 'wright_state_raiders',
-            'Youngstown State': 'youngstown_state_penguins',
-            'Norfolk State': 'norfolk_state_spartans',
-            # Add more mappings as needed, similar to your Flutter code
-        }
-        
-        # Look for exact matches first
-        if team_name in team_name_map:
-            return team_name_map[team_name]
-        
-        # Try to find partial matches
-        for key, value in team_name_map.items():
-            if key in team_name:
-                return value
-        
-        # If no match found, create a normalized version of the name
-        normalized = team_name.lower()
-        normalized = ''.join(c for c in normalized if c.isalnum() or c.isspace())
-        normalized = normalized.replace(' ', '_')
-        
-        return normalized
-    
     def predict_winner(self):
-        #team1, team2, round, year1, year2
-        print(self.left_team, self.right_team, self.selected_round, self.left_year, self.right_year)
+        # Validate that both teams have data
+        if not self.left_team or not self.right_team:
+            QMessageBox.warning(self, "Missing Data", "Please select both teams before predicting.")
+            return
+            
+        print(f"Predicting: {self.left_team} ({self.left_year}) vs {self.right_team} ({self.right_year}) in {self.selected_round}")
         
-        team1_data = get_data(int(self.left_year))
-        team1_data = team1_data[team1_data['school'] == self.left_team]
+        try:
+            # Get team data for the selected years
+            left_year_int = int(self.left_year)
+            right_year_int = int(self.right_year)
+            
+            team1_data = get_data(self.left_team,left_year_int)
+            team1_data.reset_index(inplace=True)
+            team1_data['index'] = team1_data.index
+            print(team1_data)
 
-        team2_data = get_data(int(self.right_year))
-        team2_data = team2_data[team2_data['school'] == self.right_team]
+            team2_data = get_data(self.right_team,right_year_int)
+            team2_data.reset_index(inplace=True)
+            team2_data['index'] = team2_data.index
+            print(team2_data)
 
-        processed_data = preprocess_data(team1_data, team2_data, self.selected_round)
+            team1_data = team1_data.drop(columns=['Unnamed: 0'])
+            team2_data = team2_data.drop(columns=['Unnamed: 0'])
 
-        prediction_proba = self.lgbm_model.predict_proba(processed_data)[0]
+            if team1_data.empty or team2_data.empty:
+                QMessageBox.warning(self, "Missing Data", 
+                                   f"Could not find data for {self.left_team} ({self.left_year}) or {self.right_team} ({self.right_year}).")
+                return
+                
+            # Process data in both directions to reduce home/away bias
+            processed_data = merge_data(team1_data, team2_data, left_year_int, right_year_int)
+            processed_data = processed_data.drop(columns=['index','target','game_id_diff','game_date', 'home_team', 'home_color','away_team','away_color'])
+            processed_data.fillna(0, inplace=True)
 
-        team1_win_prob = round(prediction_proba[1] * 100, 2)
-        team2_win_prob = round(prediction_proba[0] * 100, 2)
+            inverted_data = merge_data(team2_data, team1_data, right_year_int, left_year_int)
+            inverted_data = inverted_data.drop(columns=['index','target','game_id_diff','game_date', 'home_team', 'home_color','away_team','away_color'])
+            inverted_data.fillna(0, inplace=True)
 
-        print(team1_win_prob, team2_win_prob)
-        
-        return
+            ordered_data = pd.DataFrame()
+            inverted_ordered_data = pd.DataFrame()
+
+            columns = ['season_type', 'points_per_game_diff', 'assists_per_game_diff',
+            'blocks_per_game_diff', 'defensive_rebounds_per_game_diff',
+            'field_goal_pct_per_game_diff', 'field_goals_made_per_game_diff',
+            'field_goals_attempted_per_game_diff', 'flagrant_fouls_per_game_diff',
+            'fouls_per_game_diff', 'free_throw_pct_per_game_diff',
+            'free_throws_made_per_game_diff', 'free_throws_attempted_per_game_diff',
+            'offensive_rebounds_per_game_diff', 'steals_per_game_diff',
+            'team_turnovers_per_game_diff', 'technical_fouls_per_game_diff',
+            'three_point_field_goal_pct_per_game_diff',
+            'three_point_field_goals_made_per_game_diff',
+            'three_point_field_goals_attempted_per_game_diff',
+            'total_rebounds_per_game_diff', 'total_technical_fouls_per_game_diff',
+            'total_turnovers_per_game_diff', 'turnovers_per_game_diff',
+            'opponent_points_per_game_diff', 'largest_lead_per_game_diff',
+            'wins_diff', 'losses_diff', 'win_loss_percentage_diff','momentum_diff','SOS_diff',
+            'fast_break_points_per_game_diff', 'points_in_paint_per_game_diff',
+            'turnover_points_per_game_diff']
+
+            for column in columns:
+                try:
+                    ordered_data[column] = processed_data[column]
+                except:
+                    ordered_data[column] = 0
+
+            for column in columns:
+                try:
+                    inverted_ordered_data[column] = inverted_data[column]
+                except:
+                    inverted_ordered_data[column] = 0
+
+            
+            # Get predictions
+            proba_1_lgbm = self.lgbm_model.predict_proba(ordered_data)[0]
+            proba_2_lgbm = self.lgbm_model.predict_proba(inverted_ordered_data)[0]
+
+            print(proba_1_lgbm)
+            print(proba_2_lgbm)
+
+            # Direction 1: team1 vs team2
+            team1_proba_dir1 = proba_1_lgbm[1]
+
+            # Direction 2: team2 vs team1 (need to invert to get team1's perspective)
+            team1_proba_dir2 = proba_2_lgbm[0]
+
+            # Average the two directions
+            team1_proba = (team1_proba_dir1 + team1_proba_dir2) / 2
+            team2_proba = 1 - team1_proba  # These should sum to 1
+            
+            # Convert to percentages
+            team1_win_prob = round(team1_proba * 100, 2)
+            team2_win_prob = round(team2_proba * 100, 2)
+
+            # Random factor for close games
+            if abs(team1_win_prob - team2_win_prob) < 15:
+                print("Close game! Adding random factor to prediction.")
+                import random
+                random_value = random.uniform(0, 1)
+                team1_wins = random_value < (team1_win_prob/100)
+                print(f"Random value: {random_value}, Team1 prob: {team1_win_prob}")
+            else:
+                # Determine the winner based on average probability
+                team1_wins = team1_win_prob > team2_win_prob
+            
+            # Update UI to highlight winner and show probabilities
+            self.left_team_widget.set_win_gradient(team1_wins, team1_win_prob)
+            self.right_team_widget.set_win_gradient(not team1_wins, team2_win_prob)
+            
+            # Show a message with the result
+            winner = self.left_team if team1_wins else self.right_team
+            winner_prob = team1_win_prob if team1_wins else team2_win_prob
+            
+            prediction_text = f"Predicted Winner: {winner} ({winner_prob:.1f}% chance)\n\n"
+            prediction_text += f"{self.left_team}: {team1_win_prob:.1f}% chance\n"
+            prediction_text += f"{self.right_team}: {team2_win_prob:.1f}% chance"
+            
+            if abs(team1_win_prob - team2_win_prob) < 15:
+                prediction_text += "\n\n(Close matchup! Added random factor to prediction)"
+                
+            QMessageBox.information(self, "Prediction Result", prediction_text)
+            
+        except Exception as e:
+            print(f"Error predicting winner: {e}")
+            QMessageBox.critical(self, "Error", f"An error occurred during prediction: {str(e)}")
+            return
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
