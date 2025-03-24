@@ -7,8 +7,6 @@ import warnings
 # Ignore all warnings
 warnings.filterwarnings("ignore")
 
-
-sos = pd.read_csv('Game Predictions/assets/all_ratings.csv')
 kenpom = pd.read_csv('Data/kenpom/raw_data.csv')
 seeds = pd.read_csv('Data/seed_records_new.csv')
 seed_records = pd.read_csv('Data/seed_records_fixed.csv')
@@ -62,14 +60,6 @@ def merge_data(home, away, home_year, away_year):
     home['year'] = home_year
     away['year'] = away_year
 
-    # Merge SOS ratings for home teams
-    home = home.merge(sos[['School', 'SOS', 'year']], left_on=['team_location', 'year'], right_on=['School', 'year'], how='left')
-    home['momentum_strength_5'] = home['SOS'] * home['weighted_momentum_5']
-    home['momentum_strength_10'] = home['SOS'] * home['weighted_momentum_10']
-    home['momentum_strength_15'] = home['SOS'] * home['weighted_momentum_15']
-    home['win_strength'] = home['SOS'] * home['win_loss_percentage']
-    home = home.drop(columns=['School'])
-
     home = home.merge(kenpom, on=['team_location', 'year'], how='left')
 
     for column in home.columns:
@@ -86,14 +76,6 @@ def merge_data(home, away, home_year, away_year):
                 home[column] = home[column].astype(int)
             except:
                 pass
-
-    # Merge opponent data for away teams
-    away = away.merge(sos[['School', 'SOS', 'year']], left_on=['team_location', 'year'], right_on=['School', 'year'], how='left')
-    away = away.drop(columns=['School'])
-    away['momentum_strength_5'] = away['SOS'] * away['weighted_momentum_5']
-    away['momentum_strength_10'] = away['SOS'] * away['weighted_momentum_10']
-    away['momentum_strength_15'] = away['SOS'] * away['weighted_momentum_15']
-    away['win_strength'] = away['SOS'] * away['win_loss_percentage']
 
     away = away.merge(kenpom, on=['team_location', 'year'], how='left')
     away = away.drop(columns=['season_type'])

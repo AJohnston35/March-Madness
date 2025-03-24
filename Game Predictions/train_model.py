@@ -1,79 +1,158 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
-from sklearn.preprocessing import StandardScaler
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
+from lightgbm import LGBMClassifier
+import joblib
 
 # Load dataset
 df = pd.read_csv('Game Predictions/cleaned_dataset.csv')
+df = df.sort_values(by='game_date')  # Sort by date
 
-# Sort data chronologically
-df = df.sort_values(by='game_date')
+player_cols = ["double_digit_scorers", 'top_points_avg', 'top_points_position', 'top_player_last_5_avg',
+               'top_pra_avg', 'one_player_reliance', 'reliance_ranking', 'double_digit_scorers_ranking']
 
-# Split train and test sets based on date
-split_date = '2025-02-01'
+# Drop unnecessary features
+drop_cols = ['adjem_diff', 'net_rating_diff', 'net_rating_rank_diff', 'rankadjem_diff', 'raw_offensive_efficiency_diff',
+             'raw_defensive_efficiency_diff', 'adjusted_offensive_efficiency_diff', 'adjusted_defensive_efficiency_diff',
+             'adjoe_diff', 'adjde_diff', 'adjusted_offensive_efficiency_rank_diff', 'raw_offensive_efficiency_rank_diff',
+             'adjusted_defensive_efficiency_rank_diff', 'raw_defensive_efficiency_rank_diff', 'oe_diff', 'de_diff',
+             'rankadjoe_diff', 'rankadjde_diff', 'rankde_diff', 'rankoe_diff', 'conference_win_loss_percentage_diff',
+             'topct_diff', 'efgpct_diff', 'ranktopct_diff', 'fg2pct_diff', 'fg3pct_diff', 'orpct_diff',
+             'blockpct_diff', 'stlrate_diff', 'ftpct_diff']
+df.drop(columns=drop_cols, inplace=True)
+
+# Drop rank, pct, and unnecessary rate columns
+df.drop(columns=[col for col in df.columns if 'rank' in col.lower() and col not in player_cols], inplace=True)
+df.drop(columns=[col for col in df.columns if 'pct' in col.lower()], inplace=True)
+df.drop(columns=[col for col in df.columns if 'rate' in col.lower() and not any(x in col.lower() for x in ['turnover_rate', 'offensive_rebound_rate', 'free_throw_rate'])], inplace=True)
+
+# Split train/test based on date
+split_date = '2023-11-01'
 train_df = df[df['game_date'] <= split_date].copy()
 test_df = df[df['game_date'] > split_date].copy()
 
-# Define the columns to use as features (excluding non-numerical columns)
-excluded_columns = ['Unnamed: 0', 'Unnamed: 0.1', 'game_id', 'game_date', 'home_team', 'home_color', 'away_team', 'away_color', 'target']
-X_train = train_df.drop(columns=excluded_columns).fillna(0)
-y_train = train_df['target'].astype(int)
+excluded_columns = ['Unnamed: 0', 'Unnamed: 0.1', 'game_id', 'game_date', 'home_team', 'home_color', 'away_team', 'away_color', 'target', 'seed_diff']
 
-X_test = test_df.drop(columns=excluded_columns).fillna(0)
+# **Winner Prediction Model**
+tournament_games = train_df[train_df['season_type'] == 3].copy()
+train_df_weighted = pd.concat([train_df] + [tournament_games.copy() for _ in range(9)], ignore_index=True)  # 5x weight
+
+X_train = train_df_weighted.drop(columns=excluded_columns)
+y_train = train_df_weighted['target'].astype(int)
+print(X_train.columns.to_list())
+X_test = test_df.drop(columns=excluded_columns)
 y_test = test_df['target'].astype(int)
 
-# Standardize the data
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+model_winner = LGBMClassifier(objective='binary', metric='logloss', boosting_type='gbdt', verbose=-1,
+                              learning_rate=0.03, min_child_samples=20, max_depth=6, num_leaves=255, min_data_in_leaf=5,
+                              n_estimators=500)
 
-# Reshape the data for LSTM model (5 previous games as sequence)
-def create_sequences(X, y, sequence_length=5):
-    X_seq, y_seq = [], []
-    for i in range(sequence_length, len(X)):
-        X_seq.append(X[i-sequence_length:i])  # Select previous 5 games
-        y_seq.append(y.iloc[i])  # Target for the current game
-    return np.array(X_seq), np.array(y_seq)
+print("\nTraining winner prediction model...")
+model_winner.fit(X_train, y_train)
 
-X_train_seq, y_train_seq = create_sequences(X_train_scaled, y_train)
-X_test_seq, y_test_seq = create_sequences(X_test_scaled, y_test)
+# **Upset Prediction Model**
+tournament_df = train_df[train_df['season_type'] == 3].copy()
+upset_games = tournament_df[(tournament_df['seed_diff'] < -4) & (tournament_df['target'] == 0)].copy()
+upset_df = pd.concat([tournament_df] + [upset_games.copy() for _ in range(9)], ignore_index=True)  # 5x weight
 
-# Build the LSTM model
-model = Sequential()
-model.add(LSTM(128, input_shape=(X_train_seq.shape[1], X_train_seq.shape[2]), return_sequences=False))
-model.add(Dropout(0.2))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(1, activation='sigmoid'))
+X_train_upset = upset_df.drop(columns=excluded_columns)
+y_train_upset = upset_df['target'].astype(int)
 
-# Compile the model
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+model_upset = LGBMClassifier(objective='binary', metric='logloss', boosting_type='gbdt', verbose=-1,
+                             learning_rate=0.05, min_child_samples=20, max_depth=4, num_leaves=127, min_data_in_leaf=5,
+                             n_estimators=500, scale_pos_weight=0.4)
 
-# Train the model
-print("\nTraining LSTM model with past 5 games as sequences...")
-model.fit(X_train_seq, y_train_seq, epochs=10, batch_size=32, validation_data=(X_test_seq, y_test_seq))
+print("\nTraining upset prediction model...")
+model_upset.fit(X_train_upset, y_train_upset)
 
-# Save the model
-model.save('Game Predictions/models/lstm_model.h5')
+# Save models
+joblib.dump(model_winner, 'Game Predictions/models/lgbm_winner_model.joblib')
+joblib.dump(model_upset, 'Game Predictions/models/lgbm_upset_model.joblib')
 
-# Evaluate the LSTM model
-y_pred_proba = model.predict(X_test_seq)
-y_pred = (y_pred_proba > 0.5).astype(int)
+# **Evaluation Function**
+def evaluate_thresholds(model, X_test, y_test, model_name):
+    thresholds = np.linspace(0.1, 0.8, 10)  # Test thresholds from 0.1 to 0.8
+    metrics = []
+    
+    # Create mask for actual 0 values (away team wins)
+    actual_zero_mask = (y_test == 0)
+    
+    for thresh in thresholds:
+        # Get predictions based on threshold
+        y_pred_proba = model.predict_proba(X_test)[:, 1]
+        y_pred_thresh = (y_pred_proba > thresh).astype(int)
+        
+        # Calculate standard metrics
+        precision = precision_score(y_test, y_pred_thresh)
+        recall = recall_score(y_test, y_pred_thresh)
+        f1 = f1_score(y_test, y_pred_thresh)
+        accuracy = accuracy_score(y_test, y_pred_thresh)
+        
+        # Calculate accuracy for cases where the actual value is 0
+        # This shows how well the model identifies games where away team wins
+        if np.sum(actual_zero_mask) > 0:
+            actual_zero_accuracy = accuracy_score(
+                y_test[actual_zero_mask], 
+                y_pred_thresh[actual_zero_mask]
+            )
+        else:
+            actual_zero_accuracy = 0
+        
+        metrics.append([thresh, precision, recall, f1, accuracy, actual_zero_accuracy])
+    
+    # Convert to DataFrame
+    metrics_df = pd.DataFrame(
+        metrics, 
+        columns=["Threshold", "Precision", "Recall", "F1 Score", "Accuracy", "Accuracy_Actual_0"]
+    )
+    
+    # Plot metrics
+    plt.figure(figsize=(10, 6))
+    sns.lineplot(data=metrics_df, x="Threshold", y="Precision", label="Precision", marker="o")
+    sns.lineplot(data=metrics_df, x="Threshold", y="Recall", label="Recall", marker="o")
+    sns.lineplot(data=metrics_df, x="Threshold", y="F1 Score", label="F1 Score", marker="o")
+    sns.lineplot(data=metrics_df, x="Threshold", y="Accuracy", label="Accuracy", marker="o")
+    sns.lineplot(data=metrics_df, x="Threshold", y="Accuracy_Actual_0", 
+                 label="Accuracy When Away Team Wins", marker="o", linestyle="--", color="purple")
+    
+    plt.xlabel("Decision Threshold")
+    plt.ylabel("Score")
+    plt.title(f"Threshold Optimization - {model_name}")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    
+    # Print count of actual away team wins
+    print(f"Number of actual away team wins in test set: {np.sum(actual_zero_mask)}")
+    
+    # Find and return the best threshold based on F1 Score
+    best_threshold = metrics_df.loc[metrics_df["F1 Score"].idxmax(), "Threshold"]
+    return best_threshold
 
-# Evaluate metrics
-accuracy = accuracy_score(y_test_seq, y_pred)
-precision = precision_score(y_test_seq, y_pred)
-recall = recall_score(y_test_seq, y_pred)
-f1 = f1_score(y_test_seq, y_pred)
-auc = roc_auc_score(y_test_seq, y_pred_proba)
+# **Plot Threshold Optimization for Both Models**
+best_thresh_winner = evaluate_thresholds(model_winner, X_test, y_test, "Winner Prediction Model")
+best_thresh_upset = evaluate_thresholds(model_upset, X_test, y_test, "Upset Prediction Model")
 
-# Print evaluation metrics
-print(f"\nLSTM Model Evaluation:")
-print(f"Accuracy: {accuracy:.4f}")
-print(f"Precision: {precision:.4f}")
-print(f"Recall: {recall:.4f}")
-print(f"F1 Score: {f1:.4f}")
-print(f"AUC Score: {auc:.4f}")
+print(f"\nOptimal Decision Threshold (Winner Model): {best_thresh_winner:.2f}")
+print(f"Optimal Decision Threshold (Upset Model): {best_thresh_upset:.2f}")
+
+# **Feature Importance Plot**
+def plot_feature_importance(model, X_train, model_name):
+    feature_importances = model.feature_importances_
+    feature_names = X_train.columns
+
+    feat_importance_df = pd.DataFrame({'Feature': feature_names, 'Importance': feature_importances})
+    top_20_features = feat_importance_df.sort_values(by="Importance", ascending=False).head(30)
+
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x="Importance", y="Feature", data=top_20_features, palette="viridis")
+    plt.xlabel("Feature Importance")
+    plt.ylabel("Feature Name")
+    plt.title(f"Top 20 Features - {model_name}")
+    plt.show()
+
+# **Plot Feature Importance for Both Models**
+plot_feature_importance(model_winner, X_train, "Winner Prediction Model")
+plot_feature_importance(model_upset, X_train_upset, "Upset Prediction Model")

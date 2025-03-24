@@ -1,12 +1,99 @@
 import pandas as pd
+import numpy as np
+import warnings
+warnings.filterwarnings('ignore')
 
 dataset = []
 
-sos = pd.read_csv('Game Predictions/assets/all_ratings.csv')
 kenpom = pd.read_csv('Data/kenpom/raw_data.csv')
+
+player_data = pd.read_csv('Game Predictions/team_metrics.csv')
+player_data.drop(columns=['game_date'], inplace=True)
 
 # Convert all column names to lowercase and replace spaces with underscores
 kenpom.columns = [col.lower().replace(' ', '_').replace('-', '_').replace('.', '_') for col in kenpom.columns]
+
+def calculate_additional_metrics_fixed(games, year):
+    # Make a copy to avoid modifying the input DataFrame
+    games_copy = games.copy()
+    
+    # 1. Strength of Schedule (SOS) - Average opponent win percentage up to current game
+    # Instead of grouping by team, we'll calculate a running average for each game
+    games_copy['strength_of_schedule'] = games_copy.groupby('team_location')['opponent_win_loss_percentage'].transform(
+        lambda x: x.expanding().mean()
+    )
+    
+    # Calculate rolling SOS (last 10 games)
+    games_copy['rolling_sos_10'] = games_copy.groupby('team_location')['opponent_win_loss_percentage'].transform(
+        lambda x: x.rolling(window=10, min_periods=1).mean()
+    )
+    
+    # 2. Away record calculation - maintained as time series
+    # First, identify away games
+    games_copy['is_away_game'] = (games_copy['team_home_away'] == 'away').astype(int)
+    
+    # Calculate cumulative away games played (shift to avoid current game)
+    games_copy['away_games_played'] = games_copy.groupby('team_location')['is_away_game'].transform(
+        lambda x: x.shift(1).cumsum().fillna(0)
+    )
+    
+    # Calculate cumulative away wins and losses for each game date
+    # We use the shifted team_winner to avoid including the current game
+    games_copy['away_win'] = ((games_copy['team_home_away'] == 'away') & 
+                            (games_copy['team_winner_shifted'] == True)).astype(int)
+    games_copy['away_loss'] = ((games_copy['team_home_away'] == 'away') & 
+                             (games_copy['team_winner_shifted'] == False)).astype(int)
+    
+    # Calculate running totals for each team
+    games_copy['away_wins'] = games_copy.groupby('team_location')['away_win'].transform(
+        lambda x: x.shift(1).cumsum().fillna(0)
+    )
+    games_copy['away_losses'] = games_copy.groupby('team_location')['away_loss'].transform(
+        lambda x: x.shift(1).cumsum().fillna(0)
+    )
+    
+    # Calculate away win percentage for each game
+    games_copy['away_win_percentage'] = games_copy.apply(
+        lambda row: (100 * row['away_wins'] / (row['away_wins'] + row['away_losses'])) 
+                   if (row['away_wins'] + row['away_losses']) > 0 else 50,
+        axis=1
+    )
+    
+    # 3. Non-conference record - maintained as time series
+    # Create a flag for non-conference games
+    games_copy['prev_conference'] = games_copy.groupby('team_location')['short_conference_name'].shift(1)
+    games_copy['is_non_conf_game'] = (games_copy['prev_conference'] != games_copy['short_conference_name']).astype(int)
+    
+    # Calculate non-conference wins and losses with shifted results
+    games_copy['non_conf_win'] = ((games_copy['is_non_conf_game'] == 1) & 
+                                (games_copy['team_winner_shifted'] == True)).astype(int)
+    games_copy['non_conf_loss'] = ((games_copy['is_non_conf_game'] == 1) & 
+                                 (games_copy['team_winner_shifted'] == False)).astype(int)
+    
+    # Calculate running totals for each team
+    games_copy['non_conf_wins'] = games_copy.groupby('team_location')['non_conf_win'].transform(
+        lambda x: x.shift(1).cumsum().fillna(0)
+    )
+    games_copy['non_conf_losses'] = games_copy.groupby('team_location')['non_conf_loss'].transform(
+        lambda x: x.shift(1).cumsum().fillna(0)
+    )
+    
+    # Calculate non-conference win percentage
+    games_copy['non_conf_win_percentage'] = games_copy.apply(
+        lambda row: (100 * row['non_conf_wins'] / (row['non_conf_wins'] + row['non_conf_losses']))
+                   if (row['non_conf_wins'] + row['non_conf_losses']) > 0 else 50,
+        axis=1
+    )
+    
+    # Clean up intermediate columns
+    games_copy = games_copy.drop(columns=[
+        'is_away_game', 'away_win', 'away_loss', 
+        'prev_conference', 'is_non_conf_game', 'non_conf_win', 'non_conf_loss'
+    ])
+    
+    print(f"Added time-series SOS, away record, and non-conference record for {year}")
+    
+    return games_copy
 
 for year in range(2003, 2026):
     games = pd.read_csv(f"Data/game_results/games_{year}.csv")
@@ -14,7 +101,7 @@ for year in range(2003, 2026):
     games['year'] = year
 
     # Drop unnecessary columns
-    games = games.drop(columns=['season', 'game_date_time', 'team_id', 'team_uid', 'team_slug', 'team_name',
+    games = games.drop(columns=['season', 'game_date_time', 'team_uid', 'team_slug', 'team_name',
                                 'team_abbreviation', 'team_display_name', 'team_short_display_name',
                                 'team_alternate_color', 'team_logo', 'opponent_team_id', 'opponent_team_uid',
                                 'opponent_team_slug', 'opponent_team_name', 'opponent_team_abbreviation',
@@ -35,23 +122,61 @@ for year in range(2003, 2026):
 
     games = games.drop(columns=['year'])
 
+    games['possessions'] = games['field_goals_attempted'] - games['offensive_rebounds'] + games['turnovers'] + (games['free_throws_attempted']/2)
+    games['offensive_efficiency'] = (games['points'] / games['possessions']) * 100
+    games['defensive_efficiency'] = (games['opponent_points'] / games['possessions']) * 100
+    games['net_efficiency'] = games['offensive_efficiency'] - games['defensive_efficiency']
+    games['efg_percent'] = (((games['field_goals_made'] + 0.5) * games['three_point_field_goals_made']) / games['field_goals_attempted']) * 100
+    games['turnover_rate'] = (games['turnovers'] / games['possessions']) * 100
+    games['offensive_rebound_rate'] = games['offensive_rebounds'] / (games['field_goals_attempted'] - games['field_goals_made']) * 100
+    games['free_throw_rate'] = (games['free_throws_attempted'] / games['field_goals_attempted']) * 100
+    games['single_digit_win'] = np.where(games['points'] - games['opponent_points'] < 10, 1, 0)
+    games['single_digit_loss'] = np.where(games['opponent_points'] - games['points'] < 10, 1, 0)
+    games['blowout_win'] = np.where(games['points'] - games['opponent_points'] > 19, 1, 0)
+    games['blowout_loss'] = np.where(games['opponent_points'] - games['points'] > 19, 1, 0)
+    games['clutch_win'] = np.where(games['points'] - games['opponent_points'] <= 3, 1, 0)
+    games['clutch_loss'] = np.where(games['opponent_points'] - games['points'] <= 3, 1, 0)
+    games['competitive_game'] = np.where(abs(games['points'] - games['opponent_points']) < 6, 1, 0)
+    games['margin_of_victory'] = games['points'] - games['opponent_points']
+    games['blown_lead'] = games['largest_lead'] - games['margin_of_victory']
+
+    games['single_digit_win'] = games.groupby('team_location')['single_digit_win'].shift(1)
+    games['single_digit_loss'] = games.groupby('team_location')['single_digit_loss'].shift(1)
+    games['blowout_win'] = games.groupby('team_location')['blowout_win'].shift(1)
+    games['blowout_loss'] = games.groupby('team_location')['blowout_loss'].shift(1)
+    games['clutch_win'] = games.groupby('team_location')['clutch_win'].shift(1)
+    games['clutch_loss'] = games.groupby('team_location')['clutch_loss'].shift(1)
+    games['competitive_game'] = games.groupby('team_location')['competitive_game'].shift(1)
+    games['margin_of_victory'] = games.groupby('team_location')['margin_of_victory'].shift(1)
+    games['blown_lead'] = games.groupby('team_location')['blown_lead'].shift(1)
+
     # Identify numeric columns for cumulative averages (excluding certain non-statistical columns)
     numeric_columns = [col for col in games.columns if games[col].dtype in ['int64', 'float64']
-                       and col not in ['game_id', 'season_type', 'team_winner']]
+                       and col not in ['team_id', 'game_id', 'season_type', 'team_winner']]
 
     # Calculate cumulative averages using shifted values to prevent leakage
     for stat in numeric_columns:
         games[f'{stat}_per_game'] = games.groupby('team_location')[stat].transform(lambda x: x.shift(1).expanding().mean())
         games[f'{stat}_stdev'] = games.groupby('team_location')[stat].transform(lambda x: x.shift(1).expanding().std())
     
-    N = 5  # Number of past games to consider
+    N = [3,5,10]  # Number of past games to consider
 
     for stat in numeric_columns:
-        # Rolling mean of past N games
-        games[f'{stat}_rolling_mean_{N}'] = games.groupby('team_location')[stat].transform(lambda x: x.shift(1).rolling(N).mean())
+        for n in N:
+            # Rolling mean of past N games
+            games[f'{stat}_rolling_mean_{n}'] = games.groupby('team_location')[stat].transform(lambda x: x.shift(1).rolling(n).mean())
 
-        # Rolling standard deviation of past N games (consistency measure)
-        games[f'{stat}_rolling_stdev_{N}'] = games.groupby('team_location')[stat].transform(lambda x: x.shift(1).rolling(N).std())
+            # Rolling standard deviation of past N games (consistency measure)
+            games[f'{stat}_rolling_stdev_{n}'] = games.groupby('team_location')[stat].transform(lambda x: x.shift(1).rolling(n).std())
+    
+    games = games.merge(
+        player_data,
+        left_on=['game_id', 'team_id'],
+        right_on=['game_id', 'team_id'],
+        how='left'
+    )
+
+    games.drop(columns=['team_id'], inplace=True)
 
     # Shift 'team_winner' before cumulative counts to avoid including the current game
     games['team_winner_shifted'] = games.groupby('team_location')['team_winner'].shift(1)
@@ -82,8 +207,6 @@ for year in range(2003, 2026):
     games = games.merge(conference_rankings[['game_date', 'short_conference_name', 'conference_ranking']], 
                         on=['game_date', 'short_conference_name'], 
                         how='left')
-    
-    games = games.drop(columns=['short_conference_name'])
 
     # Win/loss percentage (using shifted values)
     games['win_loss_percentage'] = games.groupby('team_location')['team_winner_shifted'].transform(lambda x: x.expanding().mean()) * 100
@@ -94,6 +217,9 @@ for year in range(2003, 2026):
                                    'win_loss_percentage': 'opponent_win_loss_percentage'}, inplace=True)
 
     games = games.merge(opponent_stats, on=['game_id', 'opponent_team_location'], how='left')
+
+    games = calculate_additional_metrics_fixed(games, year)
+    games = games.drop(columns=['short_conference_name'])
 
     # Calculate past 10-game and 15-game win-loss percentages for opponents (shifted)
     games['opponent_recent_win_loss_5'] = games.groupby('opponent_team_location')['opponent_win_loss_percentage']\
@@ -142,14 +268,6 @@ for year in range(2003, 2026):
     home['year'] = year
     away['year'] = year
 
-    # Merge SOS ratings for home teams
-    home = home.merge(sos[['School', 'SOS', 'year']], left_on=['team_location', 'year'], right_on=['School', 'year'], how='left')
-    home['momentum_strength_5'] = home['SOS'] * home['weighted_momentum_5']
-    home['momentum_strength_10'] = home['SOS'] * home['weighted_momentum_10']
-    home['momentum_strength_15'] = home['SOS'] * home['weighted_momentum_15']
-    home['win_strength'] = home['SOS'] * home['win_loss_percentage']
-    home = home.drop(columns=['School'])
-
     home = home.merge(kenpom, on=['team_location', 'year'], how='left')
     home = home.drop(columns=['year'])
 
@@ -160,13 +278,6 @@ for year in range(2003, 2026):
             except:
                 print(f"Could not convert column {column} to integer")
 
-    # Merge opponent data for away teams
-    away = away.merge(sos[['School', 'SOS', 'year']], left_on=['team_location', 'year'], right_on=['School', 'year'], how='left')
-    away = away.drop(columns=['School'])
-    away['momentum_strength_5'] = away['SOS'] * away['weighted_momentum_5']
-    away['momentum_strength_10'] = away['SOS'] * away['weighted_momentum_10']
-    away['momentum_strength_15'] = away['SOS'] * away['weighted_momentum_15']
-    away['win_strength'] = away['SOS'] * away['win_loss_percentage']
 
     away = away.merge(kenpom, on=['team_location', 'year'], how='left')
     away = away.drop(columns=['year', 'season_type'])
