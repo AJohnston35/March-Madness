@@ -5,13 +5,13 @@ warnings.filterwarnings('ignore')
 
 dataset = []
 
-kenpom = pd.read_csv('Data/kenpom/raw_data.csv')
+#kenpom = pd.read_csv('Data/kenpom/raw_data.csv')
 
 player_data = pd.read_csv('Game Predictions/team_metrics.csv')
 player_data.drop(columns=['game_date'], inplace=True)
 
 # Convert all column names to lowercase and replace spaces with underscores
-kenpom.columns = [col.lower().replace(' ', '_').replace('-', '_').replace('.', '_') for col in kenpom.columns]
+#kenpom.columns = [col.lower().replace(' ', '_').replace('-', '_').replace('.', '_') for col in kenpom.columns]
 
 def calculate_additional_metrics_fixed(games, year):
     # Make a copy to avoid modifying the input DataFrame
@@ -96,7 +96,7 @@ def calculate_additional_metrics_fixed(games, year):
     return games_copy
 
 for year in range(2003, 2026):
-    games = pd.read_csv(f"Data/game_results/games_{year}.csv")
+    games = pd.read_csv(f"Data/box_scores/player_games_{year}.csv")
 
     games['year'] = year
 

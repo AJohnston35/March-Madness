@@ -5,7 +5,7 @@ library(hoopR)
 library(dplyr) # Add dplyr for data manipulation
 
 # Loop through each year from 2006 to 2025
-for (year in 2006:2025) {
+for (year in 2026:2026) {
     # Start the timer for each year
     tictoc::tic(paste("Year:", year))
 
@@ -26,7 +26,7 @@ for (year in 2006:2025) {
             ungroup()
 
         # Save the filtered data to a CSV file
-        file_path <- paste0("Data/pbp/pbp_", year, ".csv")
+        file_path <- paste0("C:/Users/Alex/Files/Projects/March-Madness/Data/","pbp/pbp_", year, ".csv")
         write.csv(mbb_pbp_filtered, file_path, row.names = FALSE)
         cat(paste("Filtered data for year", year, "saved to", file_path, "\n"))
     } else {

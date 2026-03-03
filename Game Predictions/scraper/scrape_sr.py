@@ -38,7 +38,7 @@ def scrape_tournament_data(url):
     return page_source
 
 # Loop through years 1985-2024
-for year in range(1985, 2025):
+for year in range(2026, 2026):
     url = f"https://www.sports-reference.com/cbb/postseason/men/{year}-ncaa.html"
     print(f"\nProcessing year {year}...")
     
@@ -47,7 +47,7 @@ for year in range(1985, 2025):
         html_content = scrape_tournament_data(url)
         
         # Save raw HTML
-        with open('tournament_page.html', 'w', encoding='utf-8') as f:
+        with open(f'Game Predictions/scraper/tournament_page_{year}.html', 'w', encoding='utf-8') as f:
             f.write(html_content)
             
         # Parse using imported function

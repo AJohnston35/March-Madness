@@ -20,7 +20,7 @@ for (year in 2025:2025) {
   # Check if the data was loaded correctly
   if (exists("mbb_team_box")) {
     # Save the data to a CSV file for the specific year
-    file_path <- paste0("player_games_", year, ".csv")
+    file_path <- paste0("C:/Users/Alex/Files/Projects/March-Madness/Data/game_results/","games_", year, ".csv")
     write.csv(mbb_team_box, file_path, row.names = FALSE)
     cat(paste("Data for year", year, "saved to", file_path, "\n"))
   } else {
