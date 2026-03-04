@@ -96,8 +96,17 @@ def merge_data(home, away, home_year, away_year):
 
     implied_probability = get_win_probability(merged_data['seed_home'].iloc[0], merged_data['seed_away'].iloc[0], seeds)
 
-    merged_data = merged_data.drop(columns=['team_winner_away', 'team_home_away_home', 'team_home_away_away',
-                                            'game_date_away', 'short_conference_name_home','short_conference_name_away'])
+    merged_data = merged_data.drop(
+        columns=[
+            'team_winner_away',
+            'team_home_away_home',
+            'team_home_away_away',
+            'game_date_away',
+            'short_conference_name_home',
+            'short_conference_name_away',
+        ],
+        errors='ignore'
+    )
 
     merged_data.rename(columns={
         "team_location_home": "home_team",
@@ -113,9 +122,11 @@ def merge_data(home, away, home_year, away_year):
     for column in merged_data.columns:
         if column.endswith('_home'):
             base_column = column[:-5]
-            if f'{base_column}_away' in merged_data.columns:
-                merged_data[base_column + '_diff'] = merged_data[column] - merged_data[f'{base_column}_away']
-                merged_data.drop([column, f'{base_column}_away'], axis=1, inplace=True) 
+            away_column = f'{base_column}_away'
+            if away_column in merged_data.columns:
+                if pd.api.types.is_numeric_dtype(merged_data[column]) and pd.api.types.is_numeric_dtype(merged_data[away_column]):
+                    merged_data[base_column + '_diff'] = merged_data[column] - merged_data[away_column]
+                    merged_data.drop([column, away_column], axis=1, inplace=True)
 
     merged_data = merged_data.merge(
         seed_records,

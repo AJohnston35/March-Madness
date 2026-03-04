@@ -10,7 +10,7 @@ from PyQt5.QtCore import Qt, QSize, QRect, QTimer, QUrl, QObject, pyqtSignal, py
 from PyQt5.QtNetwork import QNetworkRequest, QNetworkAccessManager, QNetworkReply
 import joblib
 import pandas as pd
-info = pd.read_csv('Data/game_results/games_2025.csv')
+info = pd.read_csv('Data/game_results/games_2026.csv')
 
 from helper import get_data, merge_data
 
@@ -59,6 +59,69 @@ def get_logo_url(team_name):
 
 # Default team colors for teams not in the dictionary
 DEFAULT_TEAM_COLOR = ('#333333', '#FFFFFF')  # Dark gray and white
+
+TRAIN_PLAYER_COLS = [
+    "double_digit_scorers",
+    "top_points_avg",
+    "top_points_position",
+    "top_player_last_5_avg",
+    "top_pra_avg",
+    "one_player_reliance",
+    "reliance_ranking",
+    "double_digit_scorers_ranking",
+]
+
+TRAIN_NON_INT_COLS = [
+    "opponent_team_uid_home",
+    "opponent_team_slug_home",
+    "opponent_team_short_display_name_home",
+    "opponent_team_uid_away",
+    "opponent_team_slug_away",
+    "opponent_team_short_display_name_away",
+]
+
+TRAIN_EXCLUDED_COLUMNS = [
+    "Unnamed: 0",
+    "game_id",
+    "game_date",
+    "home_team",
+    "home_color",
+    "away_team",
+    "away_color",
+    "target",
+    "seed_diff",
+]
+
+
+def preprocess_like_train_model(df: pd.DataFrame) -> pd.DataFrame:
+    data = df.copy()
+
+    data.drop(columns=[c for c in TRAIN_NON_INT_COLS if c in data.columns], inplace=True, errors="ignore")
+    data.drop(
+        columns=[c for c in data.columns if "rank" in c.lower() and c not in TRAIN_PLAYER_COLS],
+        inplace=True,
+        errors="ignore",
+    )
+    data.drop(columns=[c for c in data.columns if "pct" in c.lower()], inplace=True, errors="ignore")
+    data.drop(
+        columns=[
+            c
+            for c in data.columns
+            if "rate" in c.lower()
+            and not any(x in c.lower() for x in ["turnover_rate", "offensive_rebound_rate", "free_throw_rate"])
+        ],
+        inplace=True,
+        errors="ignore",
+    )
+    data.fillna(0, inplace=True)
+    return data
+
+
+def align_features_for_model(df: pd.DataFrame, feature_names) -> pd.DataFrame:
+    data = preprocess_like_train_model(df)
+    data.drop(columns=[c for c in TRAIN_EXCLUDED_COLUMNS if c in data.columns], inplace=True, errors="ignore")
+    return data.reindex(columns=list(feature_names), fill_value=0)
+
 
 class TeamStats:
     def __init__(self, team='', year='', conference='', wins=0, losses=0, points=0.0, 
@@ -515,6 +578,8 @@ class NCAATeamMatchupApp(QMainWindow):
         # Prediction model
         self.lgbm_model = joblib.load('Game Predictions/models/lgbm_winner_model.joblib')
         self.upset_model = joblib.load('Game Predictions/models/lgbm_upset_model.joblib')
+        self.winner_feature_names = list(self.lgbm_model.feature_name_)
+        self.upset_feature_names = list(self.upset_model.feature_name_)
         # App settings
         self.setWindowTitle("NCAA Team Matchup")
         self.setMinimumSize(1024, 768)
@@ -522,8 +587,8 @@ class NCAATeamMatchupApp(QMainWindow):
         # Initialize data
         self.left_team = ""
         self.right_team = ""
-        self.left_year = "2025"
-        self.right_year = "2025"
+        self.left_year = "2026"
+        self.right_year = "2026"
         self.selected_round = "Regular Season"
         
         self.left_team_stats = TeamStats()
@@ -534,7 +599,7 @@ class NCAATeamMatchupApp(QMainWindow):
         self.all_team_stats = {}
         
         self.available_years = [
-            "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", 
+            "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", 
             "2015", "2014", "2013", "2012", "2011", "2010", "2009", "2008", "2007", "2006", 
             "2005", "2004", "2003"
         ]
@@ -925,69 +990,46 @@ class NCAATeamMatchupApp(QMainWindow):
         print(f"Predicting: {self.left_team} ({self.left_year}) vs {self.right_team} ({self.right_year}) in {self.selected_round}")
         
         try:
-            # Get team data for the selected years
             left_year_int = int(self.left_year)
             right_year_int = int(self.right_year)
-            season_type=2
-            if self.selected_round == 'Regular Season':
-                season_type = 2
-            elif self.selected_round == 'NCAA Tournament':
-                season_type = 3
-            
-            team1_data = get_data(self.left_team,left_year_int)
-            team1_data.reset_index(inplace=True)
+            season_type = 3 if self.selected_round == 'NCAA Tournament' else 2
+
+            team1_data = get_data(self.left_team, left_year_int).reset_index(drop=True)
+            team2_data = get_data(self.right_team, right_year_int).reset_index(drop=True)
+
             team1_data['season_type'] = season_type
-            team1_data['index'] = team1_data.index
-
-            team2_data = get_data(self.right_team,right_year_int)
-            team2_data.reset_index(inplace=True)
             team2_data['season_type'] = season_type
-            team2_data['index'] = team2_data.index
 
-            team1_data = team1_data.drop(columns=['Unnamed: 0'])
-            team2_data = team2_data.drop(columns=['Unnamed: 0'])
+            team1_data.drop(columns=['Unnamed: 0'], inplace=True, errors='ignore')
+            team2_data.drop(columns=['Unnamed: 0'], inplace=True, errors='ignore')
 
             if team1_data.empty or team2_data.empty:
-                QMessageBox.warning(self, "Missing Data", 
-                                   f"Could not find data for {self.left_team} ({self.left_year}) or {self.right_team} ({self.right_year}).")
+                QMessageBox.warning(
+                    self,
+                    "Missing Data",
+                    f"Could not find data for {self.left_team} ({self.left_year}) or {self.right_team} ({self.right_year}).",
+                )
                 return
-                
+
             # Process data in both directions to reduce home/away bias
-            processed_data, win_probability, seed1 = merge_data(team1_data, team2_data, left_year_int, right_year_int)
-            seed_diff = processed_data['seed_diff'].values[0]
-            processed_data = processed_data.drop(columns=['target','game_date', 'home_team', 'home_color','away_team','away_color'])
-            processed_data.fillna(0, inplace=True)
+            processed_data, _, _ = merge_data(team1_data, team2_data, left_year_int, right_year_int)
+            inverted_data, _, _ = merge_data(team2_data, team1_data, right_year_int, left_year_int)
 
-            inverted_data, inverted_probability, seed2 = merge_data(team2_data, team1_data, right_year_int, left_year_int)
-            inverted_data = inverted_data.drop(columns=['target','game_date', 'home_team', 'home_color','away_team','away_color'])
-            inverted_data.fillna(0, inplace=True)
-            inverted_probability = 1 - win_probability
-            print(win_probability, inverted_probability)
+            if processed_data.empty or inverted_data.empty:
+                QMessageBox.warning(
+                    self,
+                    "Missing Data",
+                    "Could not build matchup features for this team/year combination.",
+                )
+                return
 
-            ordered_data = pd.DataFrame()
-            inverted_ordered_data = pd.DataFrame()
-            columns = ['season_type', 'points_per_game_diff', 'points_stdev_diff', 'assists_per_game_diff', 'assists_stdev_diff', 'blocks_per_game_diff', 'blocks_stdev_diff', 'defensive_rebounds_per_game_diff', 'defensive_rebounds_stdev_diff', 'field_goals_made_per_game_diff', 'field_goals_made_stdev_diff', 'field_goals_attempted_per_game_diff', 'field_goals_attempted_stdev_diff', 'flagrant_fouls_per_game_diff', 'flagrant_fouls_stdev_diff', 'fouls_per_game_diff', 'fouls_stdev_diff', 'free_throws_made_per_game_diff', 'free_throws_made_stdev_diff', 'free_throws_attempted_per_game_diff', 'free_throws_attempted_stdev_diff', 'offensive_rebounds_per_game_diff', 'offensive_rebounds_stdev_diff', 'steals_per_game_diff', 'steals_stdev_diff', 'team_turnovers_per_game_diff', 'team_turnovers_stdev_diff', 'technical_fouls_per_game_diff', 'technical_fouls_stdev_diff', 'three_point_field_goals_made_per_game_diff', 'three_point_field_goals_made_stdev_diff', 'three_point_field_goals_attempted_per_game_diff', 'three_point_field_goals_attempted_stdev_diff', 'total_rebounds_per_game_diff', 'total_rebounds_stdev_diff', 'total_technical_fouls_per_game_diff', 'total_technical_fouls_stdev_diff', 'total_turnovers_per_game_diff', 'total_turnovers_stdev_diff', 'turnovers_per_game_diff', 'turnovers_stdev_diff', 'opponent_points_per_game_diff', 'opponent_points_stdev_diff', 'largest_lead_per_game_diff', 'largest_lead_stdev_diff', 'possessions_per_game_diff', 'possessions_stdev_diff', 'offensive_efficiency_per_game_diff', 'offensive_efficiency_stdev_diff', 'defensive_efficiency_per_game_diff', 'defensive_efficiency_stdev_diff', 'net_efficiency_per_game_diff', 'net_efficiency_stdev_diff', 'efg_percent_per_game_diff', 'efg_percent_stdev_diff', 'turnover_rate_per_game_diff', 'turnover_rate_stdev_diff', 'offensive_rebound_rate_per_game_diff', 'offensive_rebound_rate_stdev_diff', 'free_throw_rate_per_game_diff', 'free_throw_rate_stdev_diff', 'single_digit_win_per_game_diff', 'single_digit_win_stdev_diff', 'single_digit_loss_per_game_diff', 'single_digit_loss_stdev_diff', 'blowout_win_per_game_diff', 'blowout_win_stdev_diff', 'blowout_loss_per_game_diff', 'blowout_loss_stdev_diff', 'clutch_win_per_game_diff', 'clutch_win_stdev_diff', 'clutch_loss_per_game_diff', 'clutch_loss_stdev_diff', 'competitive_game_per_game_diff', 'competitive_game_stdev_diff', 'margin_of_victory_per_game_diff', 'margin_of_victory_stdev_diff', 'blown_lead_per_game_diff', 'blown_lead_stdev_diff', 'points_rolling_mean_3_diff', 'points_rolling_stdev_3_diff', 'points_rolling_mean_5_diff', 'points_rolling_stdev_5_diff', 'points_rolling_mean_10_diff', 'points_rolling_stdev_10_diff', 'assists_rolling_mean_3_diff', 'assists_rolling_stdev_3_diff', 'assists_rolling_mean_5_diff', 'assists_rolling_stdev_5_diff', 'assists_rolling_mean_10_diff', 'assists_rolling_stdev_10_diff', 'blocks_rolling_mean_3_diff', 'blocks_rolling_stdev_3_diff', 'blocks_rolling_mean_5_diff', 'blocks_rolling_stdev_5_diff', 'blocks_rolling_mean_10_diff', 'blocks_rolling_stdev_10_diff', 'defensive_rebounds_rolling_mean_3_diff', 'defensive_rebounds_rolling_stdev_3_diff', 'defensive_rebounds_rolling_mean_5_diff', 'defensive_rebounds_rolling_stdev_5_diff', 'defensive_rebounds_rolling_mean_10_diff', 'defensive_rebounds_rolling_stdev_10_diff', 'field_goals_made_rolling_mean_3_diff', 'field_goals_made_rolling_stdev_3_diff', 'field_goals_made_rolling_mean_5_diff', 'field_goals_made_rolling_stdev_5_diff', 'field_goals_made_rolling_mean_10_diff', 'field_goals_made_rolling_stdev_10_diff', 'field_goals_attempted_rolling_mean_3_diff', 'field_goals_attempted_rolling_stdev_3_diff', 'field_goals_attempted_rolling_mean_5_diff', 'field_goals_attempted_rolling_stdev_5_diff', 'field_goals_attempted_rolling_mean_10_diff', 'field_goals_attempted_rolling_stdev_10_diff', 'flagrant_fouls_rolling_mean_3_diff', 'flagrant_fouls_rolling_stdev_3_diff', 'flagrant_fouls_rolling_mean_5_diff', 'flagrant_fouls_rolling_stdev_5_diff', 'flagrant_fouls_rolling_mean_10_diff', 'flagrant_fouls_rolling_stdev_10_diff', 'fouls_rolling_mean_3_diff', 'fouls_rolling_stdev_3_diff', 'fouls_rolling_mean_5_diff', 'fouls_rolling_stdev_5_diff', 'fouls_rolling_mean_10_diff', 'fouls_rolling_stdev_10_diff', 'free_throws_made_rolling_mean_3_diff', 'free_throws_made_rolling_stdev_3_diff', 'free_throws_made_rolling_mean_5_diff', 'free_throws_made_rolling_stdev_5_diff', 'free_throws_made_rolling_mean_10_diff', 'free_throws_made_rolling_stdev_10_diff', 'free_throws_attempted_rolling_mean_3_diff', 'free_throws_attempted_rolling_stdev_3_diff', 'free_throws_attempted_rolling_mean_5_diff', 'free_throws_attempted_rolling_stdev_5_diff', 'free_throws_attempted_rolling_mean_10_diff', 'free_throws_attempted_rolling_stdev_10_diff', 'offensive_rebounds_rolling_mean_3_diff', 'offensive_rebounds_rolling_stdev_3_diff', 'offensive_rebounds_rolling_mean_5_diff', 'offensive_rebounds_rolling_stdev_5_diff', 'offensive_rebounds_rolling_mean_10_diff', 'offensive_rebounds_rolling_stdev_10_diff', 'steals_rolling_mean_3_diff', 'steals_rolling_stdev_3_diff', 'steals_rolling_mean_5_diff', 'steals_rolling_stdev_5_diff', 'steals_rolling_mean_10_diff', 'steals_rolling_stdev_10_diff', 'team_turnovers_rolling_mean_3_diff', 'team_turnovers_rolling_stdev_3_diff', 'team_turnovers_rolling_mean_5_diff', 'team_turnovers_rolling_stdev_5_diff', 'team_turnovers_rolling_mean_10_diff', 'team_turnovers_rolling_stdev_10_diff', 'technical_fouls_rolling_mean_3_diff', 'technical_fouls_rolling_stdev_3_diff', 'technical_fouls_rolling_mean_5_diff', 'technical_fouls_rolling_stdev_5_diff', 'technical_fouls_rolling_mean_10_diff', 'technical_fouls_rolling_stdev_10_diff', 'three_point_field_goals_made_rolling_mean_3_diff', 'three_point_field_goals_made_rolling_stdev_3_diff', 'three_point_field_goals_made_rolling_mean_5_diff', 'three_point_field_goals_made_rolling_stdev_5_diff', 'three_point_field_goals_made_rolling_mean_10_diff', 'three_point_field_goals_made_rolling_stdev_10_diff', 'three_point_field_goals_attempted_rolling_mean_3_diff', 'three_point_field_goals_attempted_rolling_stdev_3_diff', 'three_point_field_goals_attempted_rolling_mean_5_diff', 'three_point_field_goals_attempted_rolling_stdev_5_diff', 'three_point_field_goals_attempted_rolling_mean_10_diff', 'three_point_field_goals_attempted_rolling_stdev_10_diff', 'total_rebounds_rolling_mean_3_diff', 'total_rebounds_rolling_stdev_3_diff', 'total_rebounds_rolling_mean_5_diff', 'total_rebounds_rolling_stdev_5_diff', 'total_rebounds_rolling_mean_10_diff', 'total_rebounds_rolling_stdev_10_diff', 'total_technical_fouls_rolling_mean_3_diff', 'total_technical_fouls_rolling_stdev_3_diff', 'total_technical_fouls_rolling_mean_5_diff', 'total_technical_fouls_rolling_stdev_5_diff', 'total_technical_fouls_rolling_mean_10_diff', 'total_technical_fouls_rolling_stdev_10_diff', 'total_turnovers_rolling_mean_3_diff', 'total_turnovers_rolling_stdev_3_diff', 'total_turnovers_rolling_mean_5_diff', 'total_turnovers_rolling_stdev_5_diff', 'total_turnovers_rolling_mean_10_diff', 'total_turnovers_rolling_stdev_10_diff', 'turnovers_rolling_mean_3_diff', 'turnovers_rolling_stdev_3_diff', 'turnovers_rolling_mean_5_diff', 'turnovers_rolling_stdev_5_diff', 'turnovers_rolling_mean_10_diff', 'turnovers_rolling_stdev_10_diff', 'opponent_points_rolling_mean_3_diff', 'opponent_points_rolling_stdev_3_diff', 'opponent_points_rolling_mean_5_diff', 'opponent_points_rolling_stdev_5_diff', 'opponent_points_rolling_mean_10_diff', 'opponent_points_rolling_stdev_10_diff', 'largest_lead_rolling_mean_3_diff', 'largest_lead_rolling_stdev_3_diff', 'largest_lead_rolling_mean_5_diff', 'largest_lead_rolling_stdev_5_diff', 'largest_lead_rolling_mean_10_diff', 'largest_lead_rolling_stdev_10_diff', 'possessions_rolling_mean_3_diff', 'possessions_rolling_stdev_3_diff', 'possessions_rolling_mean_5_diff', 'possessions_rolling_stdev_5_diff', 'possessions_rolling_mean_10_diff', 'possessions_rolling_stdev_10_diff', 'offensive_efficiency_rolling_mean_3_diff', 'offensive_efficiency_rolling_stdev_3_diff', 'offensive_efficiency_rolling_mean_5_diff', 'offensive_efficiency_rolling_stdev_5_diff', 'offensive_efficiency_rolling_mean_10_diff', 'offensive_efficiency_rolling_stdev_10_diff', 'defensive_efficiency_rolling_mean_3_diff', 'defensive_efficiency_rolling_stdev_3_diff', 'defensive_efficiency_rolling_mean_5_diff', 'defensive_efficiency_rolling_stdev_5_diff', 'defensive_efficiency_rolling_mean_10_diff', 'defensive_efficiency_rolling_stdev_10_diff', 'net_efficiency_rolling_mean_3_diff', 'net_efficiency_rolling_stdev_3_diff', 'net_efficiency_rolling_mean_5_diff', 'net_efficiency_rolling_stdev_5_diff', 'net_efficiency_rolling_mean_10_diff', 'net_efficiency_rolling_stdev_10_diff', 'efg_percent_rolling_mean_3_diff', 'efg_percent_rolling_stdev_3_diff', 'efg_percent_rolling_mean_5_diff', 'efg_percent_rolling_stdev_5_diff', 'efg_percent_rolling_mean_10_diff', 'efg_percent_rolling_stdev_10_diff', 'turnover_rate_rolling_mean_3_diff', 'turnover_rate_rolling_stdev_3_diff', 'turnover_rate_rolling_mean_5_diff', 'turnover_rate_rolling_stdev_5_diff', 'turnover_rate_rolling_mean_10_diff', 'turnover_rate_rolling_stdev_10_diff', 'offensive_rebound_rate_rolling_mean_3_diff', 'offensive_rebound_rate_rolling_stdev_3_diff', 'offensive_rebound_rate_rolling_mean_5_diff', 'offensive_rebound_rate_rolling_stdev_5_diff', 'offensive_rebound_rate_rolling_mean_10_diff', 'offensive_rebound_rate_rolling_stdev_10_diff', 'free_throw_rate_rolling_mean_3_diff', 'free_throw_rate_rolling_stdev_3_diff', 'free_throw_rate_rolling_mean_5_diff', 'free_throw_rate_rolling_stdev_5_diff', 'free_throw_rate_rolling_mean_10_diff', 'free_throw_rate_rolling_stdev_10_diff', 'single_digit_win_rolling_mean_3_diff', 'single_digit_win_rolling_stdev_3_diff', 'single_digit_win_rolling_mean_5_diff', 'single_digit_win_rolling_stdev_5_diff', 'single_digit_win_rolling_mean_10_diff', 'single_digit_win_rolling_stdev_10_diff', 'single_digit_loss_rolling_mean_3_diff', 'single_digit_loss_rolling_stdev_3_diff', 'single_digit_loss_rolling_mean_5_diff', 'single_digit_loss_rolling_stdev_5_diff', 'single_digit_loss_rolling_mean_10_diff', 'single_digit_loss_rolling_stdev_10_diff', 'blowout_win_rolling_mean_3_diff', 'blowout_win_rolling_stdev_3_diff', 'blowout_win_rolling_mean_5_diff', 'blowout_win_rolling_stdev_5_diff', 'blowout_win_rolling_mean_10_diff', 'blowout_win_rolling_stdev_10_diff', 'blowout_loss_rolling_mean_3_diff', 'blowout_loss_rolling_stdev_3_diff', 'blowout_loss_rolling_mean_5_diff', 'blowout_loss_rolling_stdev_5_diff', 'blowout_loss_rolling_mean_10_diff', 'blowout_loss_rolling_stdev_10_diff', 'clutch_win_rolling_mean_3_diff', 'clutch_win_rolling_stdev_3_diff', 'clutch_win_rolling_mean_5_diff', 'clutch_win_rolling_stdev_5_diff', 'clutch_win_rolling_mean_10_diff', 'clutch_win_rolling_stdev_10_diff', 'clutch_loss_rolling_mean_3_diff', 'clutch_loss_rolling_stdev_3_diff', 'clutch_loss_rolling_mean_5_diff', 'clutch_loss_rolling_stdev_5_diff', 'clutch_loss_rolling_mean_10_diff', 'clutch_loss_rolling_stdev_10_diff', 'competitive_game_rolling_mean_3_diff', 'competitive_game_rolling_stdev_3_diff', 'competitive_game_rolling_mean_5_diff', 'competitive_game_rolling_stdev_5_diff', 'competitive_game_rolling_mean_10_diff', 'competitive_game_rolling_stdev_10_diff', 'margin_of_victory_rolling_mean_3_diff', 'margin_of_victory_rolling_stdev_3_diff', 'margin_of_victory_rolling_mean_5_diff', 'margin_of_victory_rolling_stdev_5_diff', 'margin_of_victory_rolling_mean_10_diff', 'margin_of_victory_rolling_stdev_10_diff', 'blown_lead_rolling_mean_3_diff', 'blown_lead_rolling_stdev_3_diff', 'blown_lead_rolling_mean_5_diff', 'blown_lead_rolling_stdev_5_diff', 'blown_lead_rolling_mean_10_diff', 'blown_lead_rolling_stdev_10_diff', 'double_digit_scorers_diff', 'top_points_avg_diff', 'top_points_position_diff', 'top_player_last_5_avg_diff', 'top_pra_avg_diff', 'one_player_reliance_diff', 'wins_diff', 'losses_diff', 'win_loss_percentage_diff', 'opponent_win_loss_percentage_diff', 'strength_of_schedule_diff', 'rolling_sos_10_diff', 'away_games_played_diff', 'away_wins_diff', 'away_losses_diff', 'away_win_percentage_diff', 'non_conf_wins_diff', 'non_conf_losses_diff', 'non_conf_win_percentage_diff', 'opponent_recent_win_loss_5_diff', 'opponent_recent_win_loss_10_diff', 'opponent_recent_win_loss_15_diff', 'momentum_5_diff', 'momentum_10_diff', 'momentum_15_diff', 'weighted_momentum_5_diff', 'weighted_momentum_10_diff', 'weighted_momentum_15_diff', 'adjusted_temo_diff', 'raw_tempo_diff', 'avg_possession_length_(offense)_diff', 'avg_possession_length_(defense)_diff', 'offft_diff', 'off2ptfg_diff', 'off3ptfg_diff', 'defft_diff', 'def2ptfg_diff', 'def3ptfg_diff', 'tempo_diff', 'adjtempo_diff', 'dfp_diff', 'avgheight_diff', 'centerheight_diff', 'pfheight_diff', 'sfheight_diff', 'sgheight_diff', 'pgheight_diff', 'effectiveheight_diff', 'experience_diff', 'bench_diff', 'centerpts_diff', 'pfpts_diff', 'sfpts_diff', 'sgpts_diff', 'pgpts_diff', 'centeror_diff', 'pfor_diff', 'sfor_diff', 'sgor_diff', 'pgor_diff', 'centerdr_diff', 'pfdr_diff', 'sfdr_diff', 'sgdr_diff', 'pgdr_diff', 'active_coaching_length_index_diff', 'vulnerable_top_2_seed?_diff', 'top_12_in_ap_top_25_during_week_6?_diff', 'fast_break_points_per_game_diff', 'fast_break_points_stdev_diff', 'points_in_paint_per_game_diff', 'points_in_paint_stdev_diff', 'turnover_points_per_game_diff', 'turnover_points_stdev_diff', 'fast_break_points_rolling_mean_3_diff', 'fast_break_points_rolling_stdev_3_diff', 'fast_break_points_rolling_mean_5_diff', 'fast_break_points_rolling_stdev_5_diff', 'fast_break_points_rolling_mean_10_diff', 'fast_break_points_rolling_stdev_10_diff', 'points_in_paint_rolling_mean_3_diff', 'points_in_paint_rolling_stdev_3_diff', 'points_in_paint_rolling_mean_5_diff', 'points_in_paint_rolling_stdev_5_diff', 'points_in_paint_rolling_mean_10_diff', 'points_in_paint_rolling_stdev_10_diff', 'turnover_points_rolling_mean_3_diff', 'turnover_points_rolling_stdev_3_diff', 'turnover_points_rolling_mean_5_diff', 'turnover_points_rolling_stdev_5_diff', 'turnover_points_rolling_mean_10_diff', 'turnover_points_rolling_stdev_10_diff', 'win_percentage']
+            seed_diff = float(processed_data.get('seed_diff', pd.Series([0])).iloc[0])
 
-            for column in columns:
-                try:
-                    ordered_data[column] = processed_data[column]
-                except:
-                    ordered_data[column] = 0
+            # Keep inference preprocessing identical to train_model.py and align to model feature order.
+            ordered_data = align_features_for_model(processed_data, self.winner_feature_names)
+            inverted_ordered_data = align_features_for_model(inverted_data, self.winner_feature_names)
 
-            for column in columns:
-                try:
-                    inverted_ordered_data[column] = inverted_data[column]
-                except:
-                    inverted_ordered_data[column] = 0
-
-            print(ordered_data.head(1))
-
-            import random
-
-            # Use the even matchup model
             proba_1 = self.lgbm_model.predict_proba(ordered_data)[0]
-
-            # Use the even matchup model for inverted data
             proba_2 = self.lgbm_model.predict_proba(inverted_ordered_data)[0]
 
             # Direction 1: team1 vs team2
@@ -1007,10 +1049,11 @@ class NCAATeamMatchupApp(QMainWindow):
             team1_win_prob = round(team1_proba_dir1 * 100, 2)
             team2_win_prob = round((1 - team1_proba_dir1) * 100, 2)
             
-            team1_upset = 1
+            team1_upset = None
 
             if seed_diff < 0:
-                upset_prob = self.upset_model.predict_proba(ordered_data)[0]
+                upset_ordered_data = align_features_for_model(processed_data, self.upset_feature_names)
+                upset_prob = self.upset_model.predict_proba(upset_ordered_data)[0]
                 print(upset_prob)
                 team1_upset = upset_prob[1]
                 if team1_upset > upset_threshold:
@@ -1027,14 +1070,14 @@ class NCAATeamMatchupApp(QMainWindow):
             loser = self.right_team if team1_wins else self.left_team
             winner_prob = team1_win_prob if team1_wins else team2_win_prob
 
-            if team1_upset:
+            if team1_upset is not None:
                 upset_prob_adjusted = (1 - team1_upset) * 100
 
             # Build prediction text for UI
             prediction_text = f"Predicted Winner: {winner} ({winner_prob:.1f}% chance)\n\n"
             prediction_text += f"{self.left_team}: {team1_win_prob:.1f}% chance\n"
             prediction_text += f"{self.right_team}: {team2_win_prob:.1f}% chance\n\n"
-            if team1_upset:
+            if team1_upset is not None:
                 prediction_text += f"Upset probability: {upset_prob_adjusted:.1f}%\n"
 
             if not team1_wins:

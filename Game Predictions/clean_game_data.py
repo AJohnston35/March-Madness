@@ -1,17 +1,48 @@
-import pandas as pd
-import numpy as np
+import os
 import warnings
+
+warnings.filterwarnings("ignore", message="CUDA path could not be detected.*", category=UserWarning)
+
+USE_GPU = os.getenv("USE_GPU", "1") == "1"
+GPU_STATUS = "CPU"
+cp = None
+if USE_GPU:
+    try:
+        import cupy as _cp
+
+        device_count = _cp.cuda.runtime.getDeviceCount()
+        if device_count > 0:
+            cp = _cp
+            GPU_STATUS = f"GPU (CuPy, devices={device_count})"
+        else:
+            GPU_STATUS = "CPU (no CUDA device found)"
+    except Exception as gpu_error:
+        GPU_STATUS = f"CPU (GPU unavailable: {gpu_error})"
+
+import numpy as np
+import pandas as pd
+
 warnings.filterwarnings('ignore')
+print(f"Execution backend: {GPU_STATUS}")
+
+
+def is_gpu_enabled():
+    return cp is not None
 
 dataset = []
-
-#kenpom = pd.read_csv('Data/kenpom/raw_data.csv')
 
 player_data = pd.read_csv('Game Predictions/team_metrics.csv')
 player_data.drop(columns=['game_date'], inplace=True)
 
-# Convert all column names to lowercase and replace spaces with underscores
-#kenpom.columns = [col.lower().replace(' ', '_').replace('-', '_').replace('.', '_') for col in kenpom.columns]
+# Load conference mapping (replaces KenPom short_conference_name dependency)
+conference_mapping = pd.read_csv(
+    'Data/kenpom/REF _ NCAAM Conference and ESPN Team Name Mapping.csv',
+    usecols=['Conference', 'Mapped ESPN Team Name']
+).dropna()
+conference_mapping['team_location_key'] = conference_mapping['Mapped ESPN Team Name'].astype(str).str.strip().str.lower()
+conference_mapping = conference_mapping.drop_duplicates(subset=['team_location_key'])
+conference_mapping = conference_mapping.rename(columns={'Conference': 'short_conference_name'})
+conference_mapping = conference_mapping[['team_location_key', 'short_conference_name']]
 
 def calculate_additional_metrics_fixed(games, year):
     # Make a copy to avoid modifying the input DataFrame
@@ -53,11 +84,19 @@ def calculate_additional_metrics_fixed(games, year):
     )
     
     # Calculate away win percentage for each game
-    games_copy['away_win_percentage'] = games_copy.apply(
-        lambda row: (100 * row['away_wins'] / (row['away_wins'] + row['away_losses'])) 
-                   if (row['away_wins'] + row['away_losses']) > 0 else 50,
-        axis=1
-    )
+    if is_gpu_enabled():
+        away_wins = cp.asarray(games_copy['away_wins'].to_numpy(dtype=np.float32, copy=False))
+        away_losses = cp.asarray(games_copy['away_losses'].to_numpy(dtype=np.float32, copy=False))
+        away_total = away_wins + away_losses
+        away_win_percentage = cp.where(away_total > 0, (100 * away_wins / away_total), 50)
+        games_copy['away_win_percentage'] = cp.asnumpy(away_win_percentage)
+    else:
+        away_total = games_copy['away_wins'] + games_copy['away_losses']
+        games_copy['away_win_percentage'] = np.where(
+            away_total > 0,
+            (100 * games_copy['away_wins'] / away_total),
+            50
+        )
     
     # 3. Non-conference record - maintained as time series
     # Create a flag for non-conference games
@@ -79,11 +118,19 @@ def calculate_additional_metrics_fixed(games, year):
     )
     
     # Calculate non-conference win percentage
-    games_copy['non_conf_win_percentage'] = games_copy.apply(
-        lambda row: (100 * row['non_conf_wins'] / (row['non_conf_wins'] + row['non_conf_losses']))
-                   if (row['non_conf_wins'] + row['non_conf_losses']) > 0 else 50,
-        axis=1
-    )
+    if is_gpu_enabled():
+        non_conf_wins = cp.asarray(games_copy['non_conf_wins'].to_numpy(dtype=np.float32, copy=False))
+        non_conf_losses = cp.asarray(games_copy['non_conf_losses'].to_numpy(dtype=np.float32, copy=False))
+        non_conf_total = non_conf_wins + non_conf_losses
+        non_conf_win_percentage = cp.where(non_conf_total > 0, (100 * non_conf_wins / non_conf_total), 50)
+        games_copy['non_conf_win_percentage'] = cp.asnumpy(non_conf_win_percentage)
+    else:
+        non_conf_total = games_copy['non_conf_wins'] + games_copy['non_conf_losses']
+        games_copy['non_conf_win_percentage'] = np.where(
+            non_conf_total > 0,
+            (100 * games_copy['non_conf_wins'] / non_conf_total),
+            50
+        )
     
     # Clean up intermediate columns
     games_copy = games_copy.drop(columns=[
@@ -95,17 +142,27 @@ def calculate_additional_metrics_fixed(games, year):
     
     return games_copy
 
-for year in range(2003, 2026):
-    games = pd.read_csv(f"Data/box_scores/player_games_{year}.csv")
+def fill_nas(games):
+    games['largest_lead'] = games['largest_lead'].fillna(games['points'] - games['opponent_points'])
+    games['total_turnovers'] = games['total_turnovers'].fillna(games['turnovers'])
+    games['total_rebounds'] = games['total_rebounds'].fillna(games['offensive_rebounds'] + games['defensive_rebounds'])
+    # For the rest, fill with 0
+    games = games.fillna(0)
+    return games
 
-    games['year'] = year
+for year in range(2003, 2027):
+    games = pd.read_csv(f"Data/game_results/games_{year}.csv")
+
+    # Replace Hawaii with Hawai'i, St. Francis (PA) with Saint Francis, San JosÃ© St with San Jose State
+    games['team_location'] = games['team_location'].replace({'Hawaii': 'Hawai\'i', 'St. Francis (PA)': 'Saint Francis', 'San JosÃ© St': 'San Jose State'})
+    games['opponent_team_location'] = games['opponent_team_location'].replace({'Hawaii': 'Hawai\'i', 'St. Francis (PA)': 'Saint Francis', 'San JosÃ© St': 'San Jose State'})
 
     # Drop unnecessary columns
     games = games.drop(columns=['season', 'game_date_time', 'team_uid', 'team_slug', 'team_name',
                                 'team_abbreviation', 'team_display_name', 'team_short_display_name',
-                                'team_alternate_color', 'team_logo', 'opponent_team_id', 'opponent_team_uid',
-                                'opponent_team_slug', 'opponent_team_name', 'opponent_team_abbreviation',
-                                'opponent_team_display_name', 'opponent_team_short_display_name',
+                                'team_alternate_color', 'team_logo', 'opponent_team_id',
+                                'opponent_team_name', 'opponent_team_abbreviation',
+                                'opponent_team_display_name',
                                 'opponent_team_alternate_color', 'opponent_team_logo',
                                 'opponent_team_color'])
     
@@ -114,31 +171,70 @@ for year in range(2003, 2026):
     # Sort by game date
     games = games.sort_values(by=['game_date'])
 
-    games = games.merge(
-        kenpom[['team_location', 'short_conference_name', 'year']],  
-        on=['team_location', 'year'],       
-        how='left'              
-    )
+    # Map conference name from reference file (instead of KenPom short_conference_name)
+    games['team_location_key'] = games['team_location'].astype(str).str.strip().str.lower()
+    games = games.merge(conference_mapping, on='team_location_key', how='left')
+    games = games.drop(columns=['team_location_key'])
+    games['short_conference_name'] = games['short_conference_name'].fillna(games['team_location'])
 
-    games = games.drop(columns=['year'])
+    # Seed is no longer sourced from KenPom; keep a neutral placeholder for downstream logic.
+    games['seed'] = 0
 
-    games['possessions'] = games['field_goals_attempted'] - games['offensive_rebounds'] + games['turnovers'] + (games['free_throws_attempted']/2)
-    games['offensive_efficiency'] = (games['points'] / games['possessions']) * 100
-    games['defensive_efficiency'] = (games['opponent_points'] / games['possessions']) * 100
-    games['net_efficiency'] = games['offensive_efficiency'] - games['defensive_efficiency']
-    games['efg_percent'] = (((games['field_goals_made'] + 0.5) * games['three_point_field_goals_made']) / games['field_goals_attempted']) * 100
-    games['turnover_rate'] = (games['turnovers'] / games['possessions']) * 100
-    games['offensive_rebound_rate'] = games['offensive_rebounds'] / (games['field_goals_attempted'] - games['field_goals_made']) * 100
-    games['free_throw_rate'] = (games['free_throws_attempted'] / games['field_goals_attempted']) * 100
-    games['single_digit_win'] = np.where(games['points'] - games['opponent_points'] < 10, 1, 0)
-    games['single_digit_loss'] = np.where(games['opponent_points'] - games['points'] < 10, 1, 0)
-    games['blowout_win'] = np.where(games['points'] - games['opponent_points'] > 19, 1, 0)
-    games['blowout_loss'] = np.where(games['opponent_points'] - games['points'] > 19, 1, 0)
-    games['clutch_win'] = np.where(games['points'] - games['opponent_points'] <= 3, 1, 0)
-    games['clutch_loss'] = np.where(games['opponent_points'] - games['points'] <= 3, 1, 0)
-    games['competitive_game'] = np.where(abs(games['points'] - games['opponent_points']) < 6, 1, 0)
-    games['margin_of_victory'] = games['points'] - games['opponent_points']
-    games['blown_lead'] = games['largest_lead'] - games['margin_of_victory']
+    if is_gpu_enabled():
+        points = cp.asarray(games['points'].to_numpy(dtype=np.float64, copy=False))
+        opponent_points = cp.asarray(games['opponent_points'].to_numpy(dtype=np.float64, copy=False))
+        field_goals_attempted = cp.asarray(games['field_goals_attempted'].to_numpy(dtype=np.float64, copy=False))
+        offensive_rebounds = cp.asarray(games['offensive_rebounds'].to_numpy(dtype=np.float64, copy=False))
+        turnovers = cp.asarray(games['turnovers'].to_numpy(dtype=np.float64, copy=False))
+        free_throws_attempted = cp.asarray(games['free_throws_attempted'].to_numpy(dtype=np.float64, copy=False))
+        field_goals_made = cp.asarray(games['field_goals_made'].to_numpy(dtype=np.float64, copy=False))
+        three_point_field_goals_made = cp.asarray(
+            games['three_point_field_goals_made'].to_numpy(dtype=np.float64, copy=False)
+        )
+        largest_lead = cp.asarray(games['largest_lead'].to_numpy(dtype=np.float64, copy=False))
+
+        possessions = field_goals_attempted - offensive_rebounds + turnovers + (free_throws_attempted / 2)
+        margin_of_victory = points - opponent_points
+
+        games['possessions'] = cp.asnumpy(possessions).astype(np.float64)
+        games['offensive_efficiency'] = cp.asnumpy((points / possessions) * 100).astype(np.float64)
+        games['defensive_efficiency'] = cp.asnumpy((opponent_points / possessions) * 100).astype(np.float64)
+        games['net_efficiency'] = games['offensive_efficiency'] - games['defensive_efficiency']
+        games['efg_percent'] = cp.asnumpy(
+            (((field_goals_made + 0.5) * three_point_field_goals_made) / field_goals_attempted) * 100
+        ).astype(np.float64)
+        games['turnover_rate'] = cp.asnumpy((turnovers / possessions) * 100).astype(np.float64)
+        games['offensive_rebound_rate'] = cp.asnumpy(
+            (offensive_rebounds / (field_goals_attempted - field_goals_made)) * 100
+        ).astype(np.float64)
+        games['free_throw_rate'] = cp.asnumpy((free_throws_attempted / field_goals_attempted) * 100).astype(np.float64)
+        games['single_digit_win'] = cp.asnumpy((margin_of_victory < 10).astype(cp.int64)).astype(np.int64)
+        games['single_digit_loss'] = cp.asnumpy(((opponent_points - points) < 10).astype(cp.int64)).astype(np.int64)
+        games['blowout_win'] = cp.asnumpy((margin_of_victory > 19).astype(cp.int64)).astype(np.int64)
+        games['blowout_loss'] = cp.asnumpy(((opponent_points - points) > 19).astype(cp.int64)).astype(np.int64)
+        games['clutch_win'] = cp.asnumpy((margin_of_victory <= 3).astype(cp.int64)).astype(np.int64)
+        games['clutch_loss'] = cp.asnumpy(((opponent_points - points) <= 3).astype(cp.int64)).astype(np.int64)
+        games['competitive_game'] = cp.asnumpy((cp.abs(margin_of_victory) < 6).astype(cp.int64)).astype(np.int64)
+        games['margin_of_victory'] = cp.asnumpy(margin_of_victory).astype(np.float64)
+        games['blown_lead'] = cp.asnumpy(largest_lead - margin_of_victory).astype(np.float64)
+    else:
+        games['possessions'] = games['field_goals_attempted'] - games['offensive_rebounds'] + games['turnovers'] + (games['free_throws_attempted']/2)
+        games['offensive_efficiency'] = (games['points'] / games['possessions']) * 100
+        games['defensive_efficiency'] = (games['opponent_points'] / games['possessions']) * 100
+        games['net_efficiency'] = games['offensive_efficiency'] - games['defensive_efficiency']
+        games['efg_percent'] = (((games['field_goals_made'] + 0.5) * games['three_point_field_goals_made']) / games['field_goals_attempted']) * 100
+        games['turnover_rate'] = (games['turnovers'] / games['possessions']) * 100
+        games['offensive_rebound_rate'] = games['offensive_rebounds'] / (games['field_goals_attempted'] - games['field_goals_made']) * 100
+        games['free_throw_rate'] = (games['free_throws_attempted'] / games['field_goals_attempted']) * 100
+        games['single_digit_win'] = np.where(games['points'] - games['opponent_points'] < 10, 1, 0)
+        games['single_digit_loss'] = np.where(games['opponent_points'] - games['points'] < 10, 1, 0)
+        games['blowout_win'] = np.where(games['points'] - games['opponent_points'] > 19, 1, 0)
+        games['blowout_loss'] = np.where(games['opponent_points'] - games['points'] > 19, 1, 0)
+        games['clutch_win'] = np.where(games['points'] - games['opponent_points'] <= 3, 1, 0)
+        games['clutch_loss'] = np.where(games['opponent_points'] - games['points'] <= 3, 1, 0)
+        games['competitive_game'] = np.where(abs(games['points'] - games['opponent_points']) < 6, 1, 0)
+        games['margin_of_victory'] = games['points'] - games['opponent_points']
+        games['blown_lead'] = games['largest_lead'] - games['margin_of_victory']
 
     games['single_digit_win'] = games.groupby('team_location')['single_digit_win'].shift(1)
     games['single_digit_loss'] = games.groupby('team_location')['single_digit_loss'].shift(1)
@@ -150,9 +246,11 @@ for year in range(2003, 2026):
     games['margin_of_victory'] = games.groupby('team_location')['margin_of_victory'].shift(1)
     games['blown_lead'] = games.groupby('team_location')['blown_lead'].shift(1)
 
+    games = fill_nas(games)
+
     # Identify numeric columns for cumulative averages (excluding certain non-statistical columns)
     numeric_columns = [col for col in games.columns if games[col].dtype in ['int64', 'float64']
-                       and col not in ['team_id', 'game_id', 'season_type', 'team_winner']]
+                       and col not in ['team_id', 'game_id', 'season_type', 'team_winner', 'seed']]
 
     # Calculate cumulative averages using shifted values to prevent leakage
     for stat in numeric_columns:
@@ -268,7 +366,7 @@ for year in range(2003, 2026):
     home['year'] = year
     away['year'] = year
 
-    home = home.merge(kenpom, on=['team_location', 'year'], how='left')
+    #home = home.merge(kenpom, on=['team_location', 'year'], how='left')
     home = home.drop(columns=['year'])
 
     for column in home.columns:
@@ -279,7 +377,7 @@ for year in range(2003, 2026):
                 print(f"Could not convert column {column} to integer")
 
 
-    away = away.merge(kenpom, on=['team_location', 'year'], how='left')
+    #away = away.merge(kenpom, on=['team_location', 'year'], how='left')
     away = away.drop(columns=['year', 'season_type'])
 
     for column in away.columns:
@@ -291,11 +389,27 @@ for year in range(2003, 2026):
 
     merged_data = pd.merge(home, away, on='game_id', suffixes=('_home', '_away'))
 
-    merged_data['seed_home'] = merged_data.apply(lambda x: 0 if x['season_type'] == 2 else x['seed_home'], axis=1)
-    merged_data['seed_away'] = merged_data.apply(lambda x: 0 if x['season_type'] == 2 else x['seed_away'], axis=1)
+    if is_gpu_enabled():
+        season_type = cp.asarray(merged_data['season_type'].to_numpy(dtype=np.int16, copy=False))
+        seed_home = cp.asarray(merged_data['seed_home'].to_numpy(dtype=np.float32, copy=False))
+        seed_away = cp.asarray(merged_data['seed_away'].to_numpy(dtype=np.float32, copy=False))
+        merged_data['seed_home'] = cp.asnumpy(cp.where(season_type == 2, 0, seed_home))
+        merged_data['seed_away'] = cp.asnumpy(cp.where(season_type == 2, 0, seed_away))
+    else:
+        merged_data['seed_home'] = np.where(merged_data['season_type'] == 2, 0, merged_data['seed_home'])
+        merged_data['seed_away'] = np.where(merged_data['season_type'] == 2, 0, merged_data['seed_away'])
 
-    merged_data = merged_data.drop(columns=['team_winner_away', 'team_home_away_home', 'team_home_away_away',
-                                            'game_date_away', 'short_conference_name_home','short_conference_name_away'])
+    merged_data = merged_data.drop(
+        columns=[
+            'team_winner_away',
+            'team_home_away_home',
+            'team_home_away_away',
+            'game_date_away',
+            'short_conference_name_home',
+            'short_conference_name_away'
+        ],
+        errors='ignore'
+    )
 
     merged_data.rename(columns={
         "team_location_home": "home_team",
@@ -311,19 +425,21 @@ for year in range(2003, 2026):
     for column in merged_data.columns:
         if column.endswith('_home'):
             base_column = column[:-5]
-            if f'{base_column}_away' in merged_data.columns:
-                merged_data[base_column + '_diff'] = merged_data[column] - merged_data[f'{base_column}_away']
-                merged_data.drop([column, f'{base_column}_away'], axis=1, inplace=True)
+            away_column = f'{base_column}_away'
+            if away_column in merged_data.columns:
+                if pd.api.types.is_numeric_dtype(merged_data[column]) and pd.api.types.is_numeric_dtype(merged_data[away_column]):
+                    merged_data[base_column + '_diff'] = merged_data[column] - merged_data[away_column]
+                    merged_data.drop([column, away_column], axis=1, inplace=True)
 
     dataset.append(merged_data)
 
     print(f"{year} processed.")
 
 full_data = pd.concat(dataset, axis=0)
-seed_records = pd.read_csv('data/seed_records_fixed.csv')
-full_data = full_data.merge(
-    seed_records,
-    on=['seed_diff'],
-    how='left'
-)
+#seed_records = pd.read_csv('data/seed_records_fixed.csv')
+#full_data = full_data.merge(
+#    seed_records,
+#    on=['seed_diff'],
+#    how='left'
+#)
 full_data.to_csv("Game Predictions/cleaned_dataset.csv")
