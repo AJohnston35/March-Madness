@@ -81,6 +81,8 @@ TRAIN_NON_INT_COLS = [
 ]
 
 TRAIN_EXCLUDED_COLUMNS = [
+    "away_games_played_diff",
+    "away_win_percentage_diff",
     "Unnamed: 0",
     "game_id",
     "game_date",
@@ -89,6 +91,18 @@ TRAIN_EXCLUDED_COLUMNS = [
     "away_team",
     "away_color",
     "target",
+    "wins_diff",
+    "losses_diff",
+    "is_non_conference_game_diff",
+    "away_wins_diff",
+    "away_losses_diff",
+    "non_conf_losses_diff",
+    "non_conf_wins_diff",
+    "non_conf_win_percentage_diff",
+    "opponent_win_loss_percentage_diff",
+    "non_conference_win_loss_percentage_diff",
+    "opponent_short_conference_name_home",
+    "opponent_short_conference_name_away",
     "seed_diff",
 ]
 
@@ -1023,7 +1037,8 @@ class NCAATeamMatchupApp(QMainWindow):
                 )
                 return
 
-            seed_diff = float(processed_data.get('seed_diff', pd.Series([0])).iloc[0])
+            # Use net_rating_diff instead of seed_diff
+            net_rating_diff = float(processed_data.get('net_rating_diff', pd.Series([0])).iloc[0])
 
             # Keep inference preprocessing identical to train_model.py and align to model feature order.
             ordered_data = align_features_for_model(processed_data, self.winner_feature_names)
@@ -1037,8 +1052,8 @@ class NCAATeamMatchupApp(QMainWindow):
             # Direction 2: team2 vs team1 (inverted, so take team1's perspective)
             team1_proba_dir2 = proba_2[0]  # Probability of team1 winning from inverted model
 
-            threshold = 0.55
-            upset_threshold = 0.55
+            threshold = 0.50
+            upset_threshold = 0.33
 
             print(proba_1, proba_2)
             if team1_proba_dir1 > threshold:
@@ -1051,7 +1066,8 @@ class NCAATeamMatchupApp(QMainWindow):
             
             team1_upset = None
 
-            if seed_diff < 0:
+            # Match training rule: upset model is used when home side has much lower net rating.
+            if season_type == 3 and net_rating_diff <= -20:
                 upset_ordered_data = align_features_for_model(processed_data, self.upset_feature_names)
                 upset_prob = self.upset_model.predict_proba(upset_ordered_data)[0]
                 print(upset_prob)

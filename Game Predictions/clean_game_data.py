@@ -29,6 +29,25 @@ print(f"Execution backend: {GPU_STATUS}")
 def is_gpu_enabled():
     return cp is not None
 
+
+def _as_backend_array(series, dtype=np.float64):
+    values = series.to_numpy(dtype=dtype, copy=False)
+    if is_gpu_enabled():
+        return cp.asarray(values)
+    return values
+
+
+def _to_numpy(values):
+    if is_gpu_enabled():
+        return cp.asnumpy(values)
+    return values
+
+
+def _safe_ratio(numerator, denominator, scale=1.0, default=0.0):
+    if is_gpu_enabled():
+        return cp.where(denominator != 0, (numerator / denominator) * scale, default)
+    return np.where(denominator != 0, (numerator / denominator) * scale, default)
+
 dataset = []
 
 player_data = pd.read_csv('Game Predictions/team_metrics.csv')
@@ -43,6 +62,15 @@ conference_mapping['team_location_key'] = conference_mapping['Mapped ESPN Team N
 conference_mapping = conference_mapping.drop_duplicates(subset=['team_location_key'])
 conference_mapping = conference_mapping.rename(columns={'Conference': 'short_conference_name'})
 conference_mapping = conference_mapping[['team_location_key', 'short_conference_name']]
+
+# Also create mapping for opponent teams
+opponent_conference_mapping = conference_mapping.copy()
+opponent_conference_mapping = opponent_conference_mapping.rename(
+    columns={
+        'team_location_key': 'opponent_team_location_key',
+        'short_conference_name': 'opponent_short_conference_name'
+    }
+)
 
 def calculate_additional_metrics_fixed(games, year):
     # Make a copy to avoid modifying the input DataFrame
@@ -84,19 +112,11 @@ def calculate_additional_metrics_fixed(games, year):
     )
     
     # Calculate away win percentage for each game
-    if is_gpu_enabled():
-        away_wins = cp.asarray(games_copy['away_wins'].to_numpy(dtype=np.float32, copy=False))
-        away_losses = cp.asarray(games_copy['away_losses'].to_numpy(dtype=np.float32, copy=False))
-        away_total = away_wins + away_losses
-        away_win_percentage = cp.where(away_total > 0, (100 * away_wins / away_total), 50)
-        games_copy['away_win_percentage'] = cp.asnumpy(away_win_percentage)
-    else:
-        away_total = games_copy['away_wins'] + games_copy['away_losses']
-        games_copy['away_win_percentage'] = np.where(
-            away_total > 0,
-            (100 * games_copy['away_wins'] / away_total),
-            50
-        )
+    away_wins = _as_backend_array(games_copy['away_wins'], dtype=np.float32)
+    away_losses = _as_backend_array(games_copy['away_losses'], dtype=np.float32)
+    games_copy['away_win_percentage'] = _to_numpy(
+        _safe_ratio(away_wins, (away_wins + away_losses), scale=100.0, default=50.0)
+    )
     
     # 3. Non-conference record - maintained as time series
     # Create a flag for non-conference games
@@ -118,19 +138,11 @@ def calculate_additional_metrics_fixed(games, year):
     )
     
     # Calculate non-conference win percentage
-    if is_gpu_enabled():
-        non_conf_wins = cp.asarray(games_copy['non_conf_wins'].to_numpy(dtype=np.float32, copy=False))
-        non_conf_losses = cp.asarray(games_copy['non_conf_losses'].to_numpy(dtype=np.float32, copy=False))
-        non_conf_total = non_conf_wins + non_conf_losses
-        non_conf_win_percentage = cp.where(non_conf_total > 0, (100 * non_conf_wins / non_conf_total), 50)
-        games_copy['non_conf_win_percentage'] = cp.asnumpy(non_conf_win_percentage)
-    else:
-        non_conf_total = games_copy['non_conf_wins'] + games_copy['non_conf_losses']
-        games_copy['non_conf_win_percentage'] = np.where(
-            non_conf_total > 0,
-            (100 * games_copy['non_conf_wins'] / non_conf_total),
-            50
-        )
+    non_conf_wins = _as_backend_array(games_copy['non_conf_wins'], dtype=np.float32)
+    non_conf_losses = _as_backend_array(games_copy['non_conf_losses'], dtype=np.float32)
+    games_copy['non_conf_win_percentage'] = _to_numpy(
+        _safe_ratio(non_conf_wins, (non_conf_wins + non_conf_losses), scale=100.0, default=50.0)
+    )
     
     # Clean up intermediate columns
     games_copy = games_copy.drop(columns=[
@@ -148,6 +160,37 @@ def fill_nas(games):
     games['total_rebounds'] = games['total_rebounds'].fillna(games['offensive_rebounds'] + games['defensive_rebounds'])
     # For the rest, fill with 0
     games = games.fillna(0)
+    return games
+
+
+def new_cols_to_calculate(games):
+    # Peaking/slumping signal: how recent form compares to longer-term form.
+    recent_net = _as_backend_array(games['recent_net_rating'])
+    net = _as_backend_array(games['net_rating'])
+    games['peaking_slumping'] = _to_numpy(recent_net - net)
+
+    # 3pt variance profile: volume times volatility of made 3s.
+    three_pa = _as_backend_array(games['three_point_field_goals_attempted_per_game'])
+    three_pm_std = _as_backend_array(games['three_point_field_goals_made_stdev'])
+    games['three_pt_variant'] = _to_numpy(three_pa * three_pm_std)
+
+    # Major conferences used for high-major vs mid-major flags.
+    major_conferences = {'sec', 'acc', 'big10', 'big12', 'b10', 'b12'}
+    conf_norm = (
+        games['short_conference_name']
+        .astype(str)
+        .str.lower()
+        .str.replace(r'[^a-z0-9]', '', regex=True)
+    )
+    is_high_major = conf_norm.isin(major_conferences)
+    games['is_mid_major'] = (~is_high_major).astype(int)
+    games['is_elite_mid_major'] = (
+        (games['is_mid_major'] == 1) & (games['win_loss_percentage'] > 0.800)
+    ).astype(int)
+    games['is_weak_high_major'] = (
+        (games['is_mid_major'] == 0) & (games['win_loss_percentage'] < 0.650)
+    ).astype(int)
+
     return games
 
 for year in range(2003, 2027):
@@ -176,65 +219,57 @@ for year in range(2003, 2027):
     games = games.merge(conference_mapping, on='team_location_key', how='left')
     games = games.drop(columns=['team_location_key'])
     games['short_conference_name'] = games['short_conference_name'].fillna(games['team_location'])
+    games['opponent_team_location_key'] = games['opponent_team_location'].astype(str).str.strip().str.lower()
+    games = games.merge(opponent_conference_mapping, on='opponent_team_location_key', how='left')
+    games = games.drop(columns=['opponent_team_location_key'])
+    games['opponent_short_conference_name'] = games['opponent_short_conference_name'].fillna(games['opponent_team_location'])
 
-    # Seed is no longer sourced from KenPom; keep a neutral placeholder for downstream logic.
-    games['seed'] = 0
+    points = _as_backend_array(games['points'])
+    opponent_points = _as_backend_array(games['opponent_points'])
+    field_goals_attempted = _as_backend_array(games['field_goals_attempted'])
+    offensive_rebounds = _as_backend_array(games['offensive_rebounds'])
+    turnovers = _as_backend_array(games['turnovers'])
+    free_throws_attempted = _as_backend_array(games['free_throws_attempted'])
+    field_goals_made = _as_backend_array(games['field_goals_made'])
+    three_point_field_goals_made = _as_backend_array(games['three_point_field_goals_made'])
+    largest_lead = _as_backend_array(games['largest_lead'])
 
-    if is_gpu_enabled():
-        points = cp.asarray(games['points'].to_numpy(dtype=np.float64, copy=False))
-        opponent_points = cp.asarray(games['opponent_points'].to_numpy(dtype=np.float64, copy=False))
-        field_goals_attempted = cp.asarray(games['field_goals_attempted'].to_numpy(dtype=np.float64, copy=False))
-        offensive_rebounds = cp.asarray(games['offensive_rebounds'].to_numpy(dtype=np.float64, copy=False))
-        turnovers = cp.asarray(games['turnovers'].to_numpy(dtype=np.float64, copy=False))
-        free_throws_attempted = cp.asarray(games['free_throws_attempted'].to_numpy(dtype=np.float64, copy=False))
-        field_goals_made = cp.asarray(games['field_goals_made'].to_numpy(dtype=np.float64, copy=False))
-        three_point_field_goals_made = cp.asarray(
-            games['three_point_field_goals_made'].to_numpy(dtype=np.float64, copy=False)
+    possessions = field_goals_attempted - offensive_rebounds + turnovers + (free_throws_attempted / 2.0)
+    margin_of_victory = points - opponent_points
+
+    games['possessions'] = _to_numpy(possessions).astype(np.float64)
+    games['offensive_efficiency'] = _to_numpy(_safe_ratio(points, possessions, scale=100, default=0.0)).astype(np.float64)
+    games['defensive_efficiency'] = _to_numpy(_safe_ratio(opponent_points, possessions, scale=100, default=0.0)).astype(np.float64)
+    games['net_efficiency'] = _to_numpy(
+        _as_backend_array(games['offensive_efficiency']) - _as_backend_array(games['defensive_efficiency'])
+    ).astype(np.float64)
+    games['efg_percent'] = _to_numpy(
+        _safe_ratio(
+            ((field_goals_made + 0.5) * three_point_field_goals_made),
+            field_goals_attempted,
+            scale=100,
+            default=0.0,
         )
-        largest_lead = cp.asarray(games['largest_lead'].to_numpy(dtype=np.float64, copy=False))
-
-        possessions = field_goals_attempted - offensive_rebounds + turnovers + (free_throws_attempted / 2)
-        margin_of_victory = points - opponent_points
-
-        games['possessions'] = cp.asnumpy(possessions).astype(np.float64)
-        games['offensive_efficiency'] = cp.asnumpy((points / possessions) * 100).astype(np.float64)
-        games['defensive_efficiency'] = cp.asnumpy((opponent_points / possessions) * 100).astype(np.float64)
-        games['net_efficiency'] = games['offensive_efficiency'] - games['defensive_efficiency']
-        games['efg_percent'] = cp.asnumpy(
-            (((field_goals_made + 0.5) * three_point_field_goals_made) / field_goals_attempted) * 100
-        ).astype(np.float64)
-        games['turnover_rate'] = cp.asnumpy((turnovers / possessions) * 100).astype(np.float64)
-        games['offensive_rebound_rate'] = cp.asnumpy(
-            (offensive_rebounds / (field_goals_attempted - field_goals_made)) * 100
-        ).astype(np.float64)
-        games['free_throw_rate'] = cp.asnumpy((free_throws_attempted / field_goals_attempted) * 100).astype(np.float64)
-        games['single_digit_win'] = cp.asnumpy((margin_of_victory < 10).astype(cp.int64)).astype(np.int64)
-        games['single_digit_loss'] = cp.asnumpy(((opponent_points - points) < 10).astype(cp.int64)).astype(np.int64)
-        games['blowout_win'] = cp.asnumpy((margin_of_victory > 19).astype(cp.int64)).astype(np.int64)
-        games['blowout_loss'] = cp.asnumpy(((opponent_points - points) > 19).astype(cp.int64)).astype(np.int64)
-        games['clutch_win'] = cp.asnumpy((margin_of_victory <= 3).astype(cp.int64)).astype(np.int64)
-        games['clutch_loss'] = cp.asnumpy(((opponent_points - points) <= 3).astype(cp.int64)).astype(np.int64)
-        games['competitive_game'] = cp.asnumpy((cp.abs(margin_of_victory) < 6).astype(cp.int64)).astype(np.int64)
-        games['margin_of_victory'] = cp.asnumpy(margin_of_victory).astype(np.float64)
-        games['blown_lead'] = cp.asnumpy(largest_lead - margin_of_victory).astype(np.float64)
+    ).astype(np.float64)
+    games['turnover_rate'] = _to_numpy(_safe_ratio(turnovers, possessions, scale=100, default=0.0)).astype(np.float64)
+    games['offensive_rebound_rate'] = _to_numpy(
+        _safe_ratio(offensive_rebounds, (field_goals_attempted - field_goals_made), scale=100, default=0.0)
+    ).astype(np.float64)
+    games['free_throw_rate'] = _to_numpy(
+        _safe_ratio(free_throws_attempted, field_goals_attempted, scale=100, default=0.0)
+    ).astype(np.float64)
+    games['single_digit_win'] = _to_numpy((margin_of_victory < 10).astype(np.int64)).astype(np.int64)
+    games['single_digit_loss'] = _to_numpy(((opponent_points - points) < 10).astype(np.int64)).astype(np.int64)
+    games['blowout_win'] = _to_numpy((margin_of_victory > 19).astype(np.int64)).astype(np.int64)
+    games['blowout_loss'] = _to_numpy(((opponent_points - points) > 19).astype(np.int64)).astype(np.int64)
+    games['clutch_win'] = _to_numpy((margin_of_victory <= 3).astype(np.int64)).astype(np.int64)
+    games['clutch_loss'] = _to_numpy(((opponent_points - points) <= 3).astype(np.int64)).astype(np.int64)
+    if is_gpu_enabled():
+        games['competitive_game'] = _to_numpy((cp.abs(margin_of_victory) < 6).astype(np.int64)).astype(np.int64)
     else:
-        games['possessions'] = games['field_goals_attempted'] - games['offensive_rebounds'] + games['turnovers'] + (games['free_throws_attempted']/2)
-        games['offensive_efficiency'] = (games['points'] / games['possessions']) * 100
-        games['defensive_efficiency'] = (games['opponent_points'] / games['possessions']) * 100
-        games['net_efficiency'] = games['offensive_efficiency'] - games['defensive_efficiency']
-        games['efg_percent'] = (((games['field_goals_made'] + 0.5) * games['three_point_field_goals_made']) / games['field_goals_attempted']) * 100
-        games['turnover_rate'] = (games['turnovers'] / games['possessions']) * 100
-        games['offensive_rebound_rate'] = games['offensive_rebounds'] / (games['field_goals_attempted'] - games['field_goals_made']) * 100
-        games['free_throw_rate'] = (games['free_throws_attempted'] / games['field_goals_attempted']) * 100
-        games['single_digit_win'] = np.where(games['points'] - games['opponent_points'] < 10, 1, 0)
-        games['single_digit_loss'] = np.where(games['opponent_points'] - games['points'] < 10, 1, 0)
-        games['blowout_win'] = np.where(games['points'] - games['opponent_points'] > 19, 1, 0)
-        games['blowout_loss'] = np.where(games['opponent_points'] - games['points'] > 19, 1, 0)
-        games['clutch_win'] = np.where(games['points'] - games['opponent_points'] <= 3, 1, 0)
-        games['clutch_loss'] = np.where(games['opponent_points'] - games['points'] <= 3, 1, 0)
-        games['competitive_game'] = np.where(abs(games['points'] - games['opponent_points']) < 6, 1, 0)
-        games['margin_of_victory'] = games['points'] - games['opponent_points']
-        games['blown_lead'] = games['largest_lead'] - games['margin_of_victory']
+        games['competitive_game'] = _to_numpy((np.abs(margin_of_victory) < 6).astype(np.int64)).astype(np.int64)
+    games['margin_of_victory'] = _to_numpy(margin_of_victory).astype(np.float64)
+    games['blown_lead'] = _to_numpy(largest_lead - margin_of_victory).astype(np.float64)
 
     games['single_digit_win'] = games.groupby('team_location')['single_digit_win'].shift(1)
     games['single_digit_loss'] = games.groupby('team_location')['single_digit_loss'].shift(1)
@@ -248,14 +283,26 @@ for year in range(2003, 2027):
 
     games = fill_nas(games)
 
+    # Net rating features (leakage-safe: based only on prior games)
+    games['net_rating'] = games.groupby('team_location')['net_efficiency'].transform(
+        lambda x: x.shift(1).expanding().mean()
+    )
+    games['recent_net_rating'] = games.groupby('team_location')['net_efficiency'].transform(
+        lambda x: x.shift(1).rolling(window=10, min_periods=1).mean()
+    )
+    games['ranking'] = games.groupby('game_date')['net_rating'].rank(ascending=False, method='dense')
+    games['recent_ranking'] = games.groupby('game_date')['recent_net_rating'].rank(ascending=False, method='dense')
+
     # Identify numeric columns for cumulative averages (excluding certain non-statistical columns)
     numeric_columns = [col for col in games.columns if games[col].dtype in ['int64', 'float64']
-                       and col not in ['team_id', 'game_id', 'season_type', 'team_winner', 'seed']]
+                       and col not in ['team_id', 'game_id', 'season_type', 'team_winner',
+                                       'net_rating', 'recent_net_rating', 'ranking', 'recent_ranking']]
 
     # Calculate cumulative averages using shifted values to prevent leakage
     for stat in numeric_columns:
         games[f'{stat}_per_game'] = games.groupby('team_location')[stat].transform(lambda x: x.shift(1).expanding().mean())
         games[f'{stat}_stdev'] = games.groupby('team_location')[stat].transform(lambda x: x.shift(1).expanding().std())
+
     
     N = [3,5,10]  # Number of past games to consider
 
@@ -283,31 +330,57 @@ for year in range(2003, 2027):
     games['wins'] = games.groupby('team_location')['team_winner_shifted'].transform(lambda x: (x == True).cumsum())
     games['losses'] = games.groupby('team_location')['team_winner_shifted'].transform(lambda x: (x == False).cumsum())
 
-    # Conference-level win/loss calculations with shifting
-    games['conference_wins'] = games.groupby('short_conference_name')['team_winner_shifted'].transform(lambda x: (x == True).cumsum())
-    games['conference_losses'] = games.groupby('short_conference_name')['team_winner_shifted'].transform(lambda x: (x == False).cumsum())
-    games['conference_win_loss_percentage'] = games['conference_wins'] / (games['conference_wins'] + games['conference_losses'])
+    # Conference-level *non-conference* win/loss calculations with shifting
+    # Determine which games are non-conference (team's conference != opponent's conference)
+    games['is_non_conference_game'] = games['short_conference_name'] != games['opponent_short_conference_name']
 
-    games.drop(columns=['conference_wins', 'conference_losses'], inplace=True)
+    # Shift win value to look at past games only
+    # Ensure that 'team_winner_shifted' is boolean before applying ~ (bitwise NOT)
+    team_winner_shifted_bool = games['team_winner_shifted'].fillna(False).astype(bool)
+    games['team_winner_nonconf_shifted'] = team_winner_shifted_bool & games['is_non_conference_game']
+    games['team_loss_nonconf_shifted'] = (~team_winner_shifted_bool) & games['is_non_conference_game']
 
-    # Create conference rankings based on win percentage
-    conference_rankings = (
+    # Calculate cumulative non-conference wins and losses for each conference over time (using game's short_conference_name)
+    games['non_conference_wins'] = games.groupby('short_conference_name')['team_winner_nonconf_shifted'].transform(lambda x: x.cumsum())
+    games['non_conference_losses'] = games.groupby('short_conference_name')['team_loss_nonconf_shifted'].transform(lambda x: x.cumsum())
+    non_conf_wins_arr = _as_backend_array(games['non_conference_wins'])
+    non_conf_losses_arr = _as_backend_array(games['non_conference_losses'])
+    games['non_conference_win_loss_percentage'] = _to_numpy(
+        _safe_ratio(
+            non_conf_wins_arr,
+            (non_conf_wins_arr + non_conf_losses_arr),
+            scale=1.0,
+            default=0.0,
+        )
+    )
+
+    games.drop(columns=[
+        'non_conference_wins', 
+        'non_conference_losses', 
+        'team_winner_nonconf_shifted', 
+        'team_loss_nonconf_shifted'
+    ], inplace=True)
+
+    # Create conference rankings based on non-conference win percentage
+    nc_conference_rankings = (
         games.groupby(['game_date', 'short_conference_name'])
-        .agg({'conference_win_loss_percentage': 'last'})  
+        .agg({'non_conference_win_loss_percentage': 'last'})
         .reset_index()
     )
 
-    conference_rankings['conference_ranking'] = conference_rankings.groupby('game_date')['conference_win_loss_percentage'].rank(
+    nc_conference_rankings['conference_ranking'] = nc_conference_rankings.groupby('game_date')['non_conference_win_loss_percentage'].rank(
         ascending=False, method='dense'
     )
 
     # Merge rankings back into games data
-    games = games.merge(conference_rankings[['game_date', 'short_conference_name', 'conference_ranking']], 
+    games = games.merge(nc_conference_rankings[['game_date', 'short_conference_name', 'conference_ranking']], 
                         on=['game_date', 'short_conference_name'], 
                         how='left')
 
     # Win/loss percentage (using shifted values)
-    games['win_loss_percentage'] = games.groupby('team_location')['team_winner_shifted'].transform(lambda x: x.expanding().mean()) * 100
+    games['win_loss_percentage'] = games.groupby('team_location')['team_winner_shifted'].transform(lambda x: x.expanding().mean())
+
+    games = new_cols_to_calculate(games)
 
     # Merge opponent win/loss percentage (using game_id)
     opponent_stats = games[['game_id', 'team_location', 'win_loss_percentage']].copy()
@@ -321,14 +394,14 @@ for year in range(2003, 2027):
 
     # Calculate past 10-game and 15-game win-loss percentages for opponents (shifted)
     games['opponent_recent_win_loss_5'] = games.groupby('opponent_team_location')['opponent_win_loss_percentage']\
-        .transform(lambda x: x.shift(1).rolling(window=5, min_periods=1).mean()) * 100
+        .transform(lambda x: x.shift(1).rolling(window=5, min_periods=1).mean())
 
     # Calculate past 10-game and 15-game win-loss percentages for opponents (shifted)
     games['opponent_recent_win_loss_10'] = games.groupby('opponent_team_location')['opponent_win_loss_percentage']\
-        .transform(lambda x: x.shift(1).rolling(window=10, min_periods=1).mean()) * 100
+        .transform(lambda x: x.shift(1).rolling(window=10, min_periods=1).mean())
 
     games['opponent_recent_win_loss_15'] = games.groupby('opponent_team_location')['opponent_win_loss_percentage']\
-        .transform(lambda x: x.shift(1).rolling(window=15, min_periods=1).mean()) * 100
+        .transform(lambda x: x.shift(1).rolling(window=15, min_periods=1).mean())
 
     # Fill missing values (assumption: 0.5 for neutral)
     games[['opponent_win_loss_percentage', 'opponent_recent_win_loss_5', 'opponent_recent_win_loss_10', 'opponent_recent_win_loss_15']] = \
@@ -338,18 +411,26 @@ for year in range(2003, 2027):
 
     # Calculate momentum (past 10 and 15-game moving averages of wins)
     games['momentum_5'] = games.groupby('team_location')['team_winner_shifted']\
-        .transform(lambda x: x.rolling(window=5, min_periods=1).mean()) * 100
+        .transform(lambda x: x.rolling(window=5, min_periods=1).mean())
 
     # Calculate momentum (past 10 and 15-game moving averages of wins)
     games['momentum_10'] = games.groupby('team_location')['team_winner_shifted']\
-        .transform(lambda x: x.rolling(window=10, min_periods=1).mean()) * 100
+        .transform(lambda x: x.rolling(window=10, min_periods=1).mean())
 
     games['momentum_15'] = games.groupby('team_location')['team_winner_shifted']\
-        .transform(lambda x: x.rolling(window=15, min_periods=1).mean()) * 100
+        .transform(lambda x: x.rolling(window=15, min_periods=1).mean())
     
-    games['weighted_momentum_5'] = (games['opponent_recent_win_loss_5'] * games['momentum_5']) / games['conference_ranking']
-    games['weighted_momentum_10'] = (games['opponent_recent_win_loss_10'] * games['momentum_10']) / games['conference_ranking']
-    games['weighted_momentum_15'] = (games['opponent_recent_win_loss_15'] * games['momentum_15']) / games['conference_ranking']
+    opp_5 = _as_backend_array(games['opponent_recent_win_loss_5'])
+    opp_10 = _as_backend_array(games['opponent_recent_win_loss_10'])
+    opp_15 = _as_backend_array(games['opponent_recent_win_loss_15'])
+    mom_5 = _as_backend_array(games['momentum_5'])
+    mom_10 = _as_backend_array(games['momentum_10'])
+    mom_15 = _as_backend_array(games['momentum_15'])
+    conf_rank = _as_backend_array(games['conference_ranking'])
+
+    games['weighted_momentum_5'] = _to_numpy(_safe_ratio((opp_5 * mom_5), conf_rank, scale=1.0, default=0.0))
+    games['weighted_momentum_10'] = _to_numpy(_safe_ratio((opp_10 * mom_10), conf_rank, scale=1.0, default=0.0))
+    games['weighted_momentum_15'] = _to_numpy(_safe_ratio((opp_15 * mom_15), conf_rank, scale=1.0, default=0.0))
 
     games.drop(columns=['team_winner_shifted'], inplace=True)
 
@@ -389,15 +470,7 @@ for year in range(2003, 2027):
 
     merged_data = pd.merge(home, away, on='game_id', suffixes=('_home', '_away'))
 
-    if is_gpu_enabled():
-        season_type = cp.asarray(merged_data['season_type'].to_numpy(dtype=np.int16, copy=False))
-        seed_home = cp.asarray(merged_data['seed_home'].to_numpy(dtype=np.float32, copy=False))
-        seed_away = cp.asarray(merged_data['seed_away'].to_numpy(dtype=np.float32, copy=False))
-        merged_data['seed_home'] = cp.asnumpy(cp.where(season_type == 2, 0, seed_home))
-        merged_data['seed_away'] = cp.asnumpy(cp.where(season_type == 2, 0, seed_away))
-    else:
-        merged_data['seed_home'] = np.where(merged_data['season_type'] == 2, 0, merged_data['seed_home'])
-        merged_data['seed_away'] = np.where(merged_data['season_type'] == 2, 0, merged_data['seed_away'])
+    # No seed adjustment section; all references to seeds have been removed.
 
     merged_data = merged_data.drop(
         columns=[
@@ -428,7 +501,9 @@ for year in range(2003, 2027):
             away_column = f'{base_column}_away'
             if away_column in merged_data.columns:
                 if pd.api.types.is_numeric_dtype(merged_data[column]) and pd.api.types.is_numeric_dtype(merged_data[away_column]):
-                    merged_data[base_column + '_diff'] = merged_data[column] - merged_data[away_column]
+                    home_vals = _as_backend_array(merged_data[column], dtype=np.float64)
+                    away_vals = _as_backend_array(merged_data[away_column], dtype=np.float64)
+                    merged_data[base_column + '_diff'] = _to_numpy(home_vals - away_vals)
                     merged_data.drop([column, away_column], axis=1, inplace=True)
 
     dataset.append(merged_data)
@@ -436,10 +511,11 @@ for year in range(2003, 2027):
     print(f"{year} processed.")
 
 full_data = pd.concat(dataset, axis=0)
-#seed_records = pd.read_csv('data/seed_records_fixed.csv')
-#full_data = full_data.merge(
-#    seed_records,
-#    on=['seed_diff'],
-#    how='left'
-#)
+# The following lines are commented out entirely, seed references removed.
+# seed_records = pd.read_csv('data/seed_records_fixed.csv')
+# full_data = full_data.merge(
+#     seed_records,
+#     on=['seed_diff'],
+#     how='left'
+# )
 full_data.to_csv("Game Predictions/cleaned_dataset.csv")

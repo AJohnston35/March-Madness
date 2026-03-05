@@ -1,49 +1,9 @@
 import pandas as pd
-import os
-from pathlib import Path
 import numpy as np
 import warnings
 
 # Ignore all warnings
 warnings.filterwarnings("ignore")
-
-kenpom = pd.read_csv('Data/kenpom/raw_data.csv')
-seeds = pd.read_csv('Data/seed_records_new.csv')
-seed_records = pd.read_csv('Data/seed_records_fixed.csv')
-# Convert all column names to lowercase and replace spaces with underscores
-kenpom.columns = [col.lower().replace(' ', '_') for col in kenpom.columns]
-
-# If you need to replace other characters like hyphens or periods as well:
-kenpom.columns = [col.lower().replace(' ', '_').replace('-', '_').replace('.', '_') 
-                  for col in kenpom.columns]
-
-def get_win_probability(seed, opponent_seed, seed_df):
-    """
-    Retrieve win probability for a given matchup based on seeds.
-    
-    Parameters:
-    - seed: The seed of the team
-    - opponent_seed: The seed of the opponent team
-    - seed_df: DataFrame containing seed matchup statistics
-    
-    Returns:
-    - Win probability as a float between 0 and 1
-    """
-    print(seed, opponent_seed)
-    # Find the row that matches the seed matchup
-    matchup = seed_df[(seed_df['Seed'] == opponent_seed) & (seed_df['Opponent_Seed'] == seed)]
-    
-    # If the matchup exists, return the win percentage
-    if not matchup.empty:
-        return matchup['Win_Percentage'].values[0]
-    
-    # If the reverse matchup exists, return 1 minus the win percentage
-    reverse_matchup = seed_df[(seed_df['Seed'] == opponent_seed) & (seed_df['Opponent_Seed'] == seed)]
-    if not reverse_matchup.empty:
-        return 1 - reverse_matchup['Win_Percentage'].values[0]
-    
-    # If no matchup found, return 0.5 (even odds) or another default
-    return 0.5
 
 def get_data(team, year):
     df = pd.read_csv(f'Game Predictions/assets/games/games_{year}.csv')
@@ -57,44 +17,19 @@ def get_data(team, year):
     return df
 
 def merge_data(home, away, home_year, away_year):
-    home['year'] = home_year
-    away['year'] = away_year
+    home = home.copy()
+    away = away.copy()
 
-    home = home.merge(kenpom, on=['team_location', 'year'], how='left')
+    # Keep season_type from home side and avoid duplicate season_type columns.
+    away = away.drop(columns=['season_type'], errors='ignore')
 
-    for column in home.columns:
-        if home[column].dtype not in ['int64','float64']:
-            try:
-                home[column] = home[column].astype(int)
-            except:
-                pass
+    # Build one matchup row even when years differ (cross join on a constant key).
+    home['_merge_key'] = 1
+    away['_merge_key'] = 1
+    merged_data = pd.merge(home, away, on='_merge_key', suffixes=('_home', '_away')).drop(columns=['_merge_key'])
 
-    # Convert non-numeric columns
-    for column in home.columns:
-        if home[column].dtype not in ['int64', 'float64']:
-            try:
-                home[column] = home[column].astype(int)
-            except:
-                pass
-
-    away = away.merge(kenpom, on=['team_location', 'year'], how='left')
-    away = away.drop(columns=['season_type'])
-
-    for column in away.columns:
-        if away[column].dtype not in ['int64','float64']:
-            try:
-                away[column] = away[column].astype(int)
-            except:
-                pass
-
-    merged_data = pd.merge(home, away, on='year', suffixes=('_home', '_away'))
-
-    merged_data['seed_home'] = merged_data.apply(lambda x: 0 if x['season_type'] == 2 else x['seed_home'], axis=1)
-    merged_data['seed_away'] = merged_data.apply(lambda x: 0 if x['season_type'] == 2 else x['seed_away'], axis=1)
-    
-    seed1 = merged_data['seed_home'].iloc[0]
-
-    implied_probability = get_win_probability(merged_data['seed_home'].iloc[0], merged_data['seed_away'].iloc[0], seeds)
+    seed1 = float(merged_data['seed_home'].iloc[0]) if 'seed_home' in merged_data.columns else 0.0
+    implied_probability = 0.5
 
     merged_data = merged_data.drop(
         columns=[
@@ -124,14 +59,19 @@ def merge_data(home, away, home_year, away_year):
             base_column = column[:-5]
             away_column = f'{base_column}_away'
             if away_column in merged_data.columns:
-                if pd.api.types.is_numeric_dtype(merged_data[column]) and pd.api.types.is_numeric_dtype(merged_data[away_column]):
-                    merged_data[base_column + '_diff'] = merged_data[column] - merged_data[away_column]
-                    merged_data.drop([column, away_column], axis=1, inplace=True)
+                if (
+                    pd.api.types.is_numeric_dtype(merged_data[column])
+                    and pd.api.types.is_numeric_dtype(merged_data[away_column])
+                ):
+                    home_vals = merged_data[column]
+                    away_vals = merged_data[away_column]
 
-    merged_data = merged_data.merge(
-        seed_records,
-        on=['seed_diff'],
-        how='left'
-    )
+                    # NumPy does not support bool subtraction directly; match training behavior by casting to ints.
+                    if pd.api.types.is_bool_dtype(home_vals) or pd.api.types.is_bool_dtype(away_vals):
+                        home_vals = home_vals.astype(np.int8)
+                        away_vals = away_vals.astype(np.int8)
+
+                    merged_data[base_column + '_diff'] = home_vals - away_vals
+                    merged_data.drop([column, away_column], axis=1, inplace=True)
     
     return merged_data, implied_probability, seed1
