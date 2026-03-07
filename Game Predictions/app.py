@@ -1000,9 +1000,9 @@ class NCAATeamMatchupApp(QMainWindow):
         if not self.left_team or not self.right_team:
             QMessageBox.warning(self, "Missing Data", "Please select both teams before predicting.")
             return
-            
+
         print(f"Predicting: {self.left_team} ({self.left_year}) vs {self.right_team} ({self.right_year}) in {self.selected_round}")
-        
+
         try:
             left_year_int = int(self.left_year)
             right_year_int = int(self.right_year)
@@ -1037,45 +1037,38 @@ class NCAATeamMatchupApp(QMainWindow):
                 )
                 return
 
-            # Use net_rating_diff instead of seed_diff
-            net_rating_diff = float(processed_data.get('net_rating_diff', pd.Series([0])).iloc[0])
-
-            # Keep inference preprocessing identical to train_model.py and align to model feature order.
-            ordered_data = align_features_for_model(processed_data, self.winner_feature_names)
-            inverted_ordered_data = align_features_for_model(inverted_data, self.winner_feature_names)
-
-            proba_1 = self.lgbm_model.predict_proba(ordered_data)[0]
-            proba_2 = self.lgbm_model.predict_proba(inverted_ordered_data)[0]
-
-            # Direction 1: team1 vs team2
-            team1_proba_dir1 = proba_1[1]  # Probability of team1 winning
-            # Direction 2: team2 vs team1 (inverted, so take team1's perspective)
-            team1_proba_dir2 = proba_2[0]  # Probability of team1 winning from inverted model
-
             threshold = 0.50
             upset_threshold = 0.33
 
-            print(proba_1, proba_2)
-            if team1_proba_dir1 > threshold:
-                team1_wins = True
-            else: 
-                team1_wins = False
-            # Convert to percentages for display
-            team1_win_prob = round(team1_proba_dir1 * 100, 2)
-            team2_win_prob = round((1 - team1_proba_dir1) * 100, 2)
-            
-            team1_upset = None
-
-            # Match training rule: upset model is used when home side has much lower net rating.
-            if season_type == 3 and net_rating_diff <= -20:
+            # Determine prediction method: use upset model if season_type == 3, else use regular model
+            if season_type == 3:
+                # NCAA Tournament, use upset prediction
                 upset_ordered_data = align_features_for_model(processed_data, self.upset_feature_names)
+                upset_inverted_ordered_data = align_features_for_model(inverted_data, self.upset_feature_names)
                 upset_prob = self.upset_model.predict_proba(upset_ordered_data)[0]
-                print(upset_prob)
-                team1_upset = upset_prob[1]
-                if team1_upset > upset_threshold:
-                    pass
-                else:
-                    team1_wins = False
+                upset_inverted_prob = self.upset_model.predict_proba(upset_inverted_ordered_data)[0]
+                average_upset_proba = (upset_prob[1] + upset_inverted_prob[0]) / 2
+                print("Upset probs", upset_prob, upset_inverted_prob)
+                team1_win_prob = round(average_upset_proba * 100, 2)
+                team2_win_prob = round((1 - average_upset_proba) * 100, 2)
+                team1_wins = average_upset_proba > upset_threshold
+                team1_upset = average_upset_proba
+            else:
+                # Non-Tournament, use regular prediction
+                ordered_data = align_features_for_model(processed_data, self.winner_feature_names)
+                inverted_ordered_data = align_features_for_model(inverted_data, self.winner_feature_names)
+
+                proba_1 = self.lgbm_model.predict_proba(ordered_data)[0]
+                proba_2 = self.lgbm_model.predict_proba(inverted_ordered_data)[0]
+
+                print(proba_1, proba_2)
+                team1_proba_dir1 = proba_1[1]
+                team1_proba_dir2 = proba_2[0]
+                average_proba = (team1_proba_dir1 + team1_proba_dir2) / 2
+                team1_wins = average_proba > threshold
+                team1_win_prob = round(average_proba * 100, 2)
+                team2_win_prob = round((1 - average_proba) * 100, 2)
+                team1_upset = None
 
             # Update UI to highlight winner and show probabilities
             self.left_team_widget.set_win_gradient(team1_wins, team1_win_prob)
@@ -1086,23 +1079,12 @@ class NCAATeamMatchupApp(QMainWindow):
             loser = self.right_team if team1_wins else self.left_team
             winner_prob = team1_win_prob if team1_wins else team2_win_prob
 
-            if team1_upset is not None:
-                upset_prob_adjusted = (1 - team1_upset) * 100
-
-            # Build prediction text for UI
             prediction_text = f"Predicted Winner: {winner} ({winner_prob:.1f}% chance)\n\n"
             prediction_text += f"{self.left_team}: {team1_win_prob:.1f}% chance\n"
             prediction_text += f"{self.right_team}: {team2_win_prob:.1f}% chance\n\n"
-            if team1_upset is not None:
-                prediction_text += f"Upset probability: {upset_prob_adjusted:.1f}%\n"
-
-            if not team1_wins:
-                prediction_text += f"Prediction switched to {self.right_team} due to threshold logic."
 
             QMessageBox.information(self, "Prediction Result", prediction_text)
 
-
-            
         except Exception as e:
             print(f"Error predicting winner: {e}")
             QMessageBox.critical(self, "Error", f"An error occurred during prediction: {str(e)}")
