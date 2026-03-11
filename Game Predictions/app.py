@@ -2,6 +2,7 @@ import sys
 import os
 import csv
 import random
+from pathlib import Path
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                             QLabel, QComboBox, QPushButton, QFrame, QGridLayout, QSizePolicy,
                             QMessageBox)
@@ -10,12 +11,18 @@ from PyQt5.QtCore import Qt, QSize, QRect, QTimer, QUrl, QObject, pyqtSignal, py
 from PyQt5.QtNetwork import QNetworkRequest, QNetworkAccessManager, QNetworkReply
 import joblib
 import pandas as pd
+import numpy as np
 info = pd.read_csv('Data/game_results/games_2026.csv')
+info['team_location_key'] = info['team_location'].astype(str).str.strip().str.lower()
 
-from helper import get_data, merge_data
+
+def _team_key(team_name: str) -> str:
+    return str(team_name).strip().lower()
 
 def get_team_color(team):
-    team_data = info[info['team_location'] == team]
+    team_data = info[info['team_location_key'] == _team_key(team)]
+    if team_data.empty:
+        return DEFAULT_TEAM_COLOR
     hex_color = str(team_data['team_color'].iloc[0])
     if is_dark_color(hex_color):
         hex_color = str(team_data['team_alternate_color'].iloc[0])
@@ -53,88 +60,388 @@ def is_dark_color(hex_color, threshold=30):
     return all(value < threshold for value in (r, g, b))
 
 def get_logo_url(team_name):
-    logo_url = info[info['team_location'] == team_name]
+    logo_url = info[info['team_location_key'] == _team_key(team_name)]
+    if logo_url.empty:
+        return ""
     url = logo_url['team_logo'].iloc[0]        
     return url
 
 # Default team colors for teams not in the dictionary
 DEFAULT_TEAM_COLOR = ('#333333', '#FFFFFF')  # Dark gray and white
 
-TRAIN_PLAYER_COLS = [
-    "double_digit_scorers",
-    "top_points_avg",
-    "top_points_position",
-    "top_player_last_5_avg",
-    "top_pra_avg",
-    "one_player_reliance",
-    "reliance_ranking",
-    "double_digit_scorers_ranking",
+REQUIRED_BASE_COLUMNS = [
+    'team_score',
+    'opponent_team_score',
+    'field_goals_made',
+    'field_goals_attempted',
+    'three_point_field_goals_made',
+    'three_point_field_goals_attempted',
+    'free_throws_made',
+    'free_throws_attempted',
+    'offensive_rebounds',
+    'defensive_rebounds',
+    'assists',
+    'steals',
+    'blocks',
+    'team_turnovers',
+    'turnovers',
+    'fast_break_points',
+    'turnover_points',
+    'largest_lead',
+    'field_goal_pct',
+    'three_point_field_goal_pct',
+    'free_throw_pct',
+    'flagrant_fouls',
+    'fouls',
+    'lead_changes',
+    'lead_percentage',
+    'points_in_paint',
+    'technical_fouls',
+    'total_rebounds',
+    'total_technical_fouls',
+    'total_turnovers',
 ]
 
-TRAIN_NON_INT_COLS = [
-    "opponent_team_uid_home",
-    "opponent_team_slug_home",
-    "opponent_team_short_display_name_home",
-    "opponent_team_uid_away",
-    "opponent_team_slug_away",
-    "opponent_team_short_display_name_away",
+AVG_BASE_COLS = [
+    'team_score',
+    'opponent_team_score',
+    'poss',
+    'poss_opponent',
+    'off_eff',
+    'def_eff',
+    'net_eff',
+    'efg',
+    'efg_allowed',
+    'tov',
+    'stl_rate',
+    'orb',
+    'drb',
+    'ftr',
+    'ppp',
+    'two_pct',
+    'two_pct_opponent',
+    'point_differential',
+    'assist_rate',
+    'assist_to_fg',
+    'block_rate',
+    'lead_vs_outcome',
+    'fast_break_pct',
+    'points_off_turnover_pct',
 ]
-
-TRAIN_EXCLUDED_COLUMNS = [
-    "away_games_played_diff",
-    "away_win_percentage_diff",
-    "Unnamed: 0",
-    "game_id",
-    "game_date",
-    "home_team",
-    "home_color",
-    "away_team",
-    "away_color",
-    "target",
-    "wins_diff",
-    "losses_diff",
-    "is_non_conference_game_diff",
-    "away_wins_diff",
-    "away_losses_diff",
-    "non_conf_losses_diff",
-    "non_conf_wins_diff",
-    "non_conf_win_percentage_diff",
-    "opponent_win_loss_percentage_diff",
-    "non_conference_win_loss_percentage_diff",
-    "opponent_short_conference_name_home",
-    "opponent_short_conference_name_away",
-    "seed_diff",
-]
-
-
-def preprocess_like_train_model(df: pd.DataFrame) -> pd.DataFrame:
-    data = df.copy()
-
-    data.drop(columns=[c for c in TRAIN_NON_INT_COLS if c in data.columns], inplace=True, errors="ignore")
-    data.drop(
-        columns=[c for c in data.columns if "rank" in c.lower() and c not in TRAIN_PLAYER_COLS],
-        inplace=True,
-        errors="ignore",
-    )
-    data.drop(columns=[c for c in data.columns if "pct" in c.lower()], inplace=True, errors="ignore")
-    data.drop(
-        columns=[
-            c
-            for c in data.columns
-            if "rate" in c.lower()
-            and not any(x in c.lower() for x in ["turnover_rate", "offensive_rebound_rate", "free_throw_rate"])
-        ],
-        inplace=True,
-        errors="ignore",
-    )
-    data.fillna(0, inplace=True)
-    return data
 
 
 def align_features_for_model(df: pd.DataFrame, feature_names) -> pd.DataFrame:
-    data = preprocess_like_train_model(df)
-    data.drop(columns=[c for c in TRAIN_EXCLUDED_COLUMNS if c in data.columns], inplace=True, errors="ignore")
+    data = df.copy()
+    for col in data.columns:
+        if pd.api.types.is_bool_dtype(data[col]):
+            data[col] = data[col].astype(int)
+    data = data.replace([np.inf, -np.inf], np.nan).fillna(0)
     return data.reindex(columns=list(feature_names), fill_value=0)
+
+
+def _safe_divide(num, den):
+    den = den.replace(0, np.nan)
+    return num / den
+
+
+def load_conference_mapping() -> pd.DataFrame:
+    conference_mapping = pd.read_csv(
+        'Data/kenpom/REF _ NCAAM Conference and ESPN Team Name Mapping.csv',
+        usecols=['Conference', 'Mapped ESPN Team Name']
+    ).dropna()
+    conference_mapping['Mapped ESPN Team Name'] = conference_mapping['Mapped ESPN Team Name'].replace(
+        {'Hawaii': "Hawai'i", 'St. Francis (PA)': 'Saint Francis', 'San Jose State': 'San Jose State'}
+    )
+    conference_mapping['team_location_key'] = (
+        conference_mapping['Mapped ESPN Team Name'].astype(str).str.strip().str.lower()
+    )
+    conference_mapping = conference_mapping.drop_duplicates(subset=['team_location_key'])
+    conference_mapping = conference_mapping.rename(columns={'Conference': 'short_conference_name'})
+    return conference_mapping[['team_location_key', 'short_conference_name']]
+
+
+def build_team_feature_rows(season: int, conference_mapping: pd.DataFrame) -> pd.DataFrame:
+    games_path = Path(f'Data/game_results/games_{season}.csv')
+    if not games_path.exists():
+        return pd.DataFrame()
+
+    df = pd.read_csv(games_path)
+    if df.empty:
+        return df
+
+    for col in REQUIRED_BASE_COLUMNS:
+        if col not in df.columns:
+            df[col] = 0
+
+    df['team_location'] = df['team_location'].replace(
+        {'Hawaii': "Hawai'i", 'St. Francis (PA)': 'Saint Francis', 'San JosÃƒÂ© St': 'San Jose State'}
+    )
+    df['team_location_key'] = df['team_location'].astype(str).str.strip().str.lower()
+    df = df.merge(conference_mapping, on='team_location_key', how='left')
+    df.drop(columns='team_location_key', inplace=True)
+    df = df.dropna(subset=['short_conference_name'])
+
+    df = df.drop(columns=[c for c in df.columns if c.startswith('opponent_') and c != 'opponent_team_score'])
+    df['team_name'] = df['team_location']
+
+    drop_cols = [
+        'game_date_time', 'team_uid', 'team_location', 'team_slug', 'team_abbreviation',
+        'team_display_name', 'team_short_display_name', 'team_color', 'team_alternate_color', 'team_logo'
+    ]
+    df.drop(columns=drop_cols, inplace=True, errors='ignore')
+
+    df_merged = df.merge(df, on=['game_id', 'season', 'season_type', 'game_date'], suffixes=(None, '_opponent'))
+    df_merged = df_merged[df_merged['team_id'] != df_merged['team_id_opponent']]
+
+    df_merged['poss'] = (
+        df_merged['field_goals_attempted'] - df_merged['offensive_rebounds'] + df_merged['team_turnovers']
+        + (0.475 * df_merged['free_throws_attempted'])
+    )
+    df_merged['poss_opponent'] = (
+        df_merged['field_goals_attempted_opponent'] - df_merged['offensive_rebounds_opponent']
+        + df_merged['team_turnovers_opponent'] + (0.475 * df_merged['free_throws_attempted_opponent'])
+    )
+
+    df_merged['off_eff'] = _safe_divide(df_merged['team_score'], df_merged['poss']) * 100
+    df_merged['def_eff'] = _safe_divide(df_merged['team_score_opponent'], df_merged['poss_opponent']) * 100
+    df_merged['net_eff'] = df_merged['off_eff'] - df_merged['def_eff']
+
+    df_merged['efg'] = _safe_divide(
+        (df_merged['field_goals_made'] + (0.5 * df_merged['three_point_field_goals_made'])),
+        df_merged['field_goals_attempted'],
+    )
+    df_merged['efg_allowed'] = _safe_divide(
+        (df_merged['field_goals_made_opponent'] + (0.5 * df_merged['three_point_field_goals_made_opponent'])),
+        df_merged['field_goals_attempted_opponent'],
+    )
+    df_merged['tov'] = _safe_divide(df_merged['team_turnovers'], df_merged['poss'])
+    df_merged['stl_rate'] = _safe_divide(df_merged['steals'], df_merged['poss_opponent'])
+    df_merged['orb'] = _safe_divide(
+        df_merged['offensive_rebounds'],
+        (df_merged['offensive_rebounds'] + df_merged['defensive_rebounds_opponent'])
+    )
+    df_merged['drb'] = _safe_divide(
+        df_merged['defensive_rebounds'],
+        (df_merged['defensive_rebounds'] + df_merged['offensive_rebounds_opponent'])
+    )
+    df_merged['ftr'] = _safe_divide(df_merged['free_throws_attempted'], df_merged['field_goals_attempted'])
+    df_merged['ppp'] = _safe_divide(df_merged['team_score'], df_merged['poss'])
+
+    df_merged['two_pm'] = df_merged['field_goals_made'] - df_merged['three_point_field_goals_made']
+    df_merged['two_pa'] = df_merged['field_goals_attempted'] - df_merged['three_point_field_goals_attempted']
+    df_merged['two_pct'] = _safe_divide(df_merged['two_pm'], df_merged['two_pa'])
+
+    df_merged['two_pm_opponent'] = (
+        df_merged['field_goals_made_opponent'] - df_merged['three_point_field_goals_made_opponent']
+    )
+    df_merged['two_pa_opponent'] = (
+        df_merged['field_goals_attempted_opponent'] - df_merged['three_point_field_goals_attempted_opponent']
+    )
+    df_merged['two_pct_opponent'] = _safe_divide(df_merged['two_pm_opponent'], df_merged['two_pa_opponent'])
+
+    df_merged['point_differential'] = df_merged['team_score'] - df_merged['team_score_opponent']
+    df_merged['assist_rate'] = _safe_divide(df_merged['assists'], df_merged['poss'])
+    df_merged['assist_to_fg'] = _safe_divide(df_merged['assists'], df_merged['field_goals_made'])
+    df_merged['block_rate'] = _safe_divide(df_merged['blocks'], df_merged['poss_opponent'])
+    df_merged['lead_vs_outcome'] = df_merged['largest_lead'] - df_merged['point_differential']
+    df_merged['fast_break_pct'] = _safe_divide(df_merged['fast_break_points'], df_merged['team_score'])
+    df_merged['points_off_turnover_pct'] = _safe_divide(df_merged['turnover_points'], df_merged['team_score'])
+
+    maybe_keep = [
+        'field_goals_made', 'field_goals_attempted', 'three_point_field_goals_made',
+        'three_point_field_goals_attempted', 'free_throws_made', 'free_throws_attempted',
+        'offensive_rebounds', 'defensive_rebounds', 'turnovers', 'field_goal_pct',
+        'three_point_field_goal_pct', 'free_throw_pct', 'assists', 'two_pm', 'two_pa',
+        'two_pm_opponent', 'two_pa_opponent'
+    ]
+    drop_cols_two = [
+        'blocks', 'fast_break_points', 'flagrant_fouls', 'fouls', 'largest_lead', 'lead_changes',
+        'lead_percentage', 'points_in_paint', 'steals', 'team_turnovers', 'technical_fouls',
+        'total_rebounds', 'total_technical_fouls', 'total_turnovers', 'turnover_points'
+    ]
+    drop_opponent_cols = [
+        'team_home_away_opponent', 'team_score_opponent', 'team_winner_opponent',
+        'assists_opponent', 'blocks_opponent', 'defensive_rebounds_opponent', 'fast_break_points_opponent',
+        'field_goal_pct_opponent', 'field_goals_made_opponent', 'field_goals_attempted_opponent',
+        'flagrant_fouls_opponent', 'fouls_opponent', 'free_throw_pct_opponent', 'free_throws_made_opponent',
+        'free_throws_attempted_opponent', 'largest_lead_opponent', 'lead_changes_opponent',
+        'lead_percentage_opponent', 'offensive_rebounds_opponent', 'points_in_paint_opponent',
+        'steals_opponent', 'team_turnovers_opponent', 'technical_fouls_opponent',
+        'three_point_field_goal_pct_opponent', 'three_point_field_goals_made_opponent',
+        'three_point_field_goals_attempted_opponent', 'total_rebounds_opponent',
+        'total_technical_fouls_opponent', 'total_turnovers_opponent', 'turnover_points_opponent',
+        'turnovers_opponent', 'opponent_team_score_opponent'
+    ]
+
+    df_merged.drop(columns=maybe_keep, inplace=True, errors='ignore')
+    df_merged.drop(columns=drop_cols_two, inplace=True, errors='ignore')
+    df_merged.drop(columns=drop_opponent_cols, inplace=True, errors='ignore')
+
+    df_merged = df_merged.sort_values(by=['game_date', 'game_id'], ascending=True)
+
+    def encode_team_home_away(row):
+        if row['season_type'] in [1, 3]:
+            return 2
+        return 1 if str(row['team_home_away']).strip().lower() == 'home' else 0
+
+    df_merged['team_home_away'] = df_merged.apply(encode_team_home_away, axis=1)
+    df_merged['team_winner'] = df_merged['team_winner'].apply(lambda x: 1 if x is True or x == 1 else 0)
+
+    df_merged['home_off_eff'] = df_merged.groupby('team_id').apply(
+        lambda g: g.loc[g['team_home_away'] == 1, 'off_eff'].shift(1).expanding().mean()
+    ).reset_index(level=0, drop=True)
+    df_merged['home_def_eff'] = df_merged.groupby('team_id').apply(
+        lambda g: g.loc[g['team_home_away'] == 1, 'def_eff'].shift(1).expanding().mean()
+    ).reset_index(level=0, drop=True)
+    df_merged['away_off_eff'] = df_merged.groupby('team_id').apply(
+        lambda g: g.loc[g['team_home_away'] == 0, 'off_eff'].shift(1).expanding().mean()
+    ).reset_index(level=0, drop=True)
+    df_merged['away_def_eff'] = df_merged.groupby('team_id').apply(
+        lambda g: g.loc[g['team_home_away'] == 0, 'def_eff'].shift(1).expanding().mean()
+    ).reset_index(level=0, drop=True)
+
+    df_merged['points_last10'] = df_merged.groupby('team_id')['team_score'].transform(
+        lambda x: x.shift(1).rolling(10, min_periods=1).sum()
+    )
+    df_merged['opp_points_last10'] = df_merged.groupby('team_id')['opponent_team_score'].transform(
+        lambda x: x.shift(1).rolling(10, min_periods=1).sum()
+    )
+    df_merged['poss_last10'] = df_merged.groupby('team_id')['poss'].transform(
+        lambda x: x.shift(1).rolling(10, min_periods=1).sum()
+    )
+    df_merged['poss_opp_last10'] = df_merged.groupby('team_id')['poss_opponent'].transform(
+        lambda x: x.shift(1).rolling(10, min_periods=1).sum()
+    )
+    df_merged['last_10_efficiency'] = (
+        _safe_divide(df_merged['points_last10'], df_merged['poss_last10']) * 100
+        - _safe_divide(df_merged['opp_points_last10'], df_merged['poss_opp_last10']) * 100
+    )
+    df_merged.drop(columns=['points_last10', 'opp_points_last10', 'poss_last10', 'poss_opp_last10'], inplace=True)
+
+    for col in AVG_BASE_COLS:
+        df_merged[f'{col}_avg'] = df_merged.groupby('team_id')[col].transform(lambda x: x.shift(1).expanding().mean())
+        df_merged[f'{col}_rolling_5'] = df_merged.groupby('team_id')[col].transform(lambda x: x.shift(1).rolling(5).mean())
+
+    df_merged['is_early_season'] = df_merged.isna().any(axis=1).astype(int)
+    drop_avg_bases = [c for c in AVG_BASE_COLS if c not in ['team_score', 'opponent_team_score']]
+    df_merged.drop(columns=drop_avg_bases, inplace=True, errors='ignore')
+
+    df_merged['conference_strength'] = df_merged.groupby('short_conference_name')['net_eff_avg'].transform(
+        lambda x: x.shift(1).expanding().mean()
+    )
+
+    df_merged['team_winner_shifted'] = df_merged.groupby('team_id')['team_winner'].shift(1)
+    df_merged['wins'] = df_merged.groupby('team_id')['team_winner_shifted'].transform(lambda x: (x == True).cumsum())
+    df_merged['losses'] = df_merged.groupby('team_id')['team_winner_shifted'].transform(lambda x: (x == False).cumsum())
+
+    df_merged['non_conf_win'] = (df_merged['team_winner_shifted'].fillna(False).astype(bool)) & (
+        df_merged['short_conference_name'] != df_merged['short_conference_name_opponent']
+    )
+    df_merged['non_conf_loss'] = ~(df_merged['team_winner_shifted'].fillna(False).astype(bool)) & (
+        df_merged['short_conference_name'] != df_merged['short_conference_name_opponent']
+    )
+    df_merged['non_conf_wins'] = df_merged.groupby('short_conference_name')['non_conf_win'].transform(lambda x: x.cumsum())
+    df_merged['non_conf_losses'] = df_merged.groupby('short_conference_name')['non_conf_loss'].transform(lambda x: x.cumsum())
+
+    df_merged['win_loss_pct'] = _safe_divide(df_merged['wins'], (df_merged['wins'] + df_merged['losses']))
+    df_merged['non_conf_win_loss_pct'] = _safe_divide(
+        df_merged['non_conf_wins'], (df_merged['non_conf_wins'] + df_merged['non_conf_losses'])
+    )
+    df_merged.drop(
+        columns=['wins', 'losses', 'non_conf_win', 'non_conf_loss', 'non_conf_wins', 'non_conf_losses', 'team_winner_shifted'],
+        inplace=True
+    )
+
+    df_merged['conference_nonconf_win_pct'] = df_merged.groupby('short_conference_name')['non_conf_win_loss_pct'].transform(
+        lambda x: x.shift(1).expanding().mean()
+    )
+
+    df_merged['points_for'] = df_merged.groupby('team_id')['team_score'].transform(lambda x: x.shift(1).cumsum())
+    df_merged['points_against'] = df_merged.groupby('team_id')['opponent_team_score'].transform(lambda x: x.shift(1).cumsum())
+    k = 13.91
+    df_merged['pythagorean_win_pct'] = _safe_divide(
+        (df_merged['points_for'] ** k), ((df_merged['points_for'] ** k) + (df_merged['points_against'] ** k))
+    )
+    df_merged['luck'] = df_merged['win_loss_pct'] - df_merged['pythagorean_win_pct']
+    df_merged.drop(
+        columns=['team_score', 'opponent_team_score', 'points_for', 'points_against', 'pythagorean_win_pct'],
+        inplace=True,
+        errors='ignore'
+    )
+
+    sos_base = df_merged[['game_id', 'season', 'season_type', 'game_date', 'team_id', 'net_eff_avg']].copy()
+    sos_pairs = sos_base.merge(
+        sos_base, on=['game_id', 'season', 'season_type', 'game_date'], suffixes=('_a', '_b')
+    )
+    sos_pairs = sos_pairs[sos_pairs['team_id_a'] != sos_pairs['team_id_b']]
+    sos_pairs = sos_pairs.sort_values(by=['game_date', 'game_id'], ascending=True)
+    sos_pairs['sos'] = sos_pairs.groupby('team_id_a')['net_eff_avg_b'].transform(
+        lambda x: x.shift(1).expanding().mean()
+    )
+    sos_map = sos_pairs[['game_id', 'team_id_a', 'sos']].rename(columns={'team_id_a': 'team_id'})
+    df_merged = df_merged.merge(sos_map, on=['game_id', 'team_id'], how='left')
+
+    return df_merged
+
+
+def build_matchup_feature_row(
+    left_snapshot: pd.Series,
+    right_snapshot: pd.Series,
+    season: int,
+    season_type: int,
+    team_home_away: int,
+) -> pd.DataFrame:
+    def val(row: pd.Series, column: str, default: float = -100.0) -> float:
+        if column not in row or pd.isna(row[column]):
+            return default
+        return float(row[column])
+
+    exp_poss = (val(left_snapshot, 'poss_avg') + val(right_snapshot, 'poss_avg')) / 2
+
+    feature_row = {
+        'season': int(season),
+        'season_type': int(season_type),
+        'team_home_away': int(team_home_away),
+        'is_early_season': int(val(left_snapshot, 'is_early_season', 1.0)),
+        'sos': val(left_snapshot, 'sos'),
+        'sos_opp': val(right_snapshot, 'sos'),
+        'off_vs_def': val(left_snapshot, 'off_eff_avg') - val(right_snapshot, 'def_eff_avg'),
+        'def_vs_off': val(right_snapshot, 'off_eff_avg') - val(left_snapshot, 'def_eff_avg'),
+        'tov_vs_stl': val(left_snapshot, 'tov_avg') - val(right_snapshot, 'stl_rate_avg'),
+        'stl_vs_tov': val(right_snapshot, 'tov_avg') - val(left_snapshot, 'stl_rate_avg'),
+        'orb_vs_drb': val(left_snapshot, 'orb_avg') - val(right_snapshot, 'drb_avg'),
+        'drb_vs_orb': val(right_snapshot, 'orb_avg') - val(left_snapshot, 'drb_avg'),
+        'pace_diff': val(left_snapshot, 'poss_avg') - val(right_snapshot, 'poss_avg'),
+        'exp_poss': exp_poss,
+        'efg_vs_efg_allowed': val(left_snapshot, 'efg_avg') - val(right_snapshot, 'efg_allowed_avg'),
+        'efg_allowed_vs_efg': val(right_snapshot, 'efg_avg') - val(left_snapshot, 'efg_allowed_avg'),
+        'margin_estimate': ((val(left_snapshot, 'net_eff_avg') - val(right_snapshot, 'net_eff_avg')) * exp_poss) / 100,
+        'home_off_away_def': val(left_snapshot, 'home_off_eff') - val(right_snapshot, 'away_def_eff'),
+        'home_def_away_off': val(left_snapshot, 'home_def_eff') - val(right_snapshot, 'away_off_eff'),
+        'away_off_home_def': val(left_snapshot, 'away_off_eff') - val(right_snapshot, 'home_def_eff'),
+        'away_def_home_off': val(left_snapshot, 'away_def_eff') - val(right_snapshot, 'home_off_eff'),
+        'last_10_efficiency_diff': val(left_snapshot, 'last_10_efficiency') - val(right_snapshot, 'last_10_efficiency'),
+    }
+
+    for base_col in AVG_BASE_COLS:
+        feature_row[f'{base_col}_avg_diff'] = val(left_snapshot, f'{base_col}_avg') - val(right_snapshot, f'{base_col}_avg')
+        feature_row[f'{base_col}_rolling_5_diff'] = (
+            val(left_snapshot, f'{base_col}_rolling_5') - val(right_snapshot, f'{base_col}_rolling_5')
+        )
+
+    feature_row['conference_strength_diff'] = (
+        val(left_snapshot, 'conference_strength') - val(right_snapshot, 'conference_strength')
+    )
+    feature_row['win_loss_pct_diff'] = val(left_snapshot, 'win_loss_pct') - val(right_snapshot, 'win_loss_pct')
+    feature_row['non_conf_win_loss_pct_diff'] = (
+        val(left_snapshot, 'non_conf_win_loss_pct') - val(right_snapshot, 'non_conf_win_loss_pct')
+    )
+    feature_row['conference_nonconf_win_pct_diff'] = (
+        val(left_snapshot, 'conference_nonconf_win_pct') - val(right_snapshot, 'conference_nonconf_win_pct')
+    )
+    feature_row['luck_diff'] = val(left_snapshot, 'luck') - val(right_snapshot, 'luck')
+
+    return pd.DataFrame([feature_row]).replace([np.inf, -np.inf], np.nan).fillna(-100)
 
 
 class TeamStats:
@@ -159,10 +466,11 @@ class TeamStats:
         self.net_rating = net_rating
 
 class TeamSideWidget(QWidget):
-    def __init__(self, is_left, parent=None):
+    def __init__(self, is_left, parent=None, show_year_selector=True):
         super().__init__(parent)
         self.is_left = is_left
         self.parent_app = parent
+        self.show_year_selector = show_year_selector
         self.team_colors = DEFAULT_TEAM_COLOR
         
         # Set side colors
@@ -192,10 +500,11 @@ class TeamSideWidget(QWidget):
         self.conf_logo_label.setFixedSize(120, 120)  # Much larger conference logo
         self.conf_logo_label.setStyleSheet("background-color: transparent; color: white; font-size: 14px;")
         
-        # Year selector - moved to inner corner
+        # Year selector
         year_layout = QHBoxLayout()
-        year_label = QLabel("Year:")
+        year_label = QLabel("Season:")
         year_label.setStyleSheet("background-color: transparent; color: white; font-weight: bold;")
+        self.year_label = year_label
         self.year_combo = QComboBox()
         self.year_combo.setStyleSheet("""
             QComboBox {
@@ -211,17 +520,19 @@ class TeamSideWidget(QWidget):
         """)
         year_layout.addWidget(year_label)
         year_layout.addWidget(self.year_combo)
+
+        if not self.show_year_selector:
+            self.year_label.hide()
+            self.year_combo.hide()
         
         # Position based on side (left or right)
         if self.is_left:
-            # For left side: conf logo on left, year on right
-            top_layout.addWidget(self.conf_logo_label)
+            # Left side: keep season selector on the left edge.
+            top_layout.addLayout(year_layout)
             top_layout.addStretch(1)
-            top_layout.addLayout(year_layout)
+            top_layout.addWidget(self.conf_logo_label)
         else:
-            # For right side: year on left, conf logo on right
-            top_layout.addLayout(year_layout)
-            top_layout.addStretch(1) 
+            top_layout.addStretch(1)
             top_layout.addWidget(self.conf_logo_label)
             
         self.layout.addLayout(top_layout)
@@ -274,7 +585,8 @@ class TeamSideWidget(QWidget):
         self.layout.addWidget(self.team_combo)
         
         # Connect signals
-        self.year_combo.currentTextChanged.connect(self.year_changed)
+        if self.show_year_selector:
+            self.year_combo.currentTextChanged.connect(self.year_changed)
         self.team_combo.currentTextChanged.connect(self.team_changed)
 
     def animate_border(self):
@@ -421,35 +733,14 @@ class TeamSideWidget(QWidget):
             """)
     
     def year_changed(self, year):
-        if not year:
+        if not year or not self.parent_app or not self.is_left:
             return
-            
-        # Update available teams for the selected year
-        if self.parent_app:
-            teams = self.parent_app.get_teams_for_year(year)
-            current_team = self.team_combo.currentText()
-            
-            # Block signals to prevent triggering team_changed while updating
-            self.team_combo.blockSignals(True)
-            
-            self.team_combo.clear()
-            self.team_combo.addItems(teams)
-            
-            # Try to keep the same team if it exists in new year
-            if current_team in teams:
-                index = self.team_combo.findText(current_team)
-                self.team_combo.setCurrentIndex(index)
-            
-            self.team_combo.blockSignals(False)
-            
-            # Manually trigger update if team changed
-            if self.is_left:
-                self.parent_app.left_year = year
-            else:
-                self.parent_app.right_year = year
-                
-            # Update stats and UI
-            self.parent_app.update_team_stats()
+
+        self.parent_app.selected_season = year
+        self.parent_app.left_year = year
+        self.parent_app.right_year = year
+        self.parent_app.update_team_dropdowns_for_selected_season()
+        self.parent_app.update_team_stats()
             
     def team_changed(self, team):
         if not team:
@@ -495,6 +786,8 @@ class TeamSideWidget(QWidget):
         try:
             # Get normalized team name
             logo_url = get_logo_url(team)
+            if not logo_url:
+                raise ValueError("Missing logo URL")
             
             # Create network request
             self.network_manager = QNetworkAccessManager()
@@ -591,9 +884,7 @@ class NCAATeamMatchupApp(QMainWindow):
 
         # Prediction model
         self.lgbm_model = joblib.load('Game Predictions/models/lgbm_winner_model.joblib')
-        self.upset_model = joblib.load('Game Predictions/models/lgbm_upset_model.joblib')
         self.winner_feature_names = list(self.lgbm_model.feature_name_)
-        self.upset_feature_names = list(self.upset_model.feature_name_)
         # App settings
         self.setWindowTitle("NCAA Team Matchup")
         self.setMinimumSize(1024, 768)
@@ -601,9 +892,12 @@ class NCAATeamMatchupApp(QMainWindow):
         # Initialize data
         self.left_team = ""
         self.right_team = ""
-        self.left_year = "2026"
-        self.right_year = "2026"
+        self.selected_season = "2026"
+        self.left_year = self.selected_season
+        self.right_year = self.selected_season
         self.selected_round = "Regular Season"
+        self.conference_mapping = load_conference_mapping()
+        self.team_feature_cache = {}
         
         self.left_team_stats = TeamStats()
         self.right_team_stats = TeamStats()
@@ -689,10 +983,10 @@ class NCAATeamMatchupApp(QMainWindow):
         teams_layout = QHBoxLayout()
         
         # Left team side
-        self.left_team_widget = TeamSideWidget(is_left=True, parent=self)
+        self.left_team_widget = TeamSideWidget(is_left=True, parent=self, show_year_selector=True)
         
         # Right team side
-        self.right_team_widget = TeamSideWidget(is_left=False, parent=self)
+        self.right_team_widget = TeamSideWidget(is_left=False, parent=self, show_year_selector=False)
         
         teams_layout.addWidget(self.left_team_widget)
         teams_layout.addWidget(self.right_team_widget)
@@ -846,73 +1140,99 @@ class NCAATeamMatchupApp(QMainWindow):
     
     def get_teams_for_year(self, year):
         return self.teams_by_year.get(year, self.all_teams)
-    
-    def update_ui_with_data(self):
-        # Update year dropdowns
-        self.left_team_widget.year_combo.addItems(self.available_years)
-        self.right_team_widget.year_combo.addItems(self.available_years)
-        
-        # Set default years
-        self.left_team_widget.year_combo.setCurrentText(self.left_year)
-        self.right_team_widget.year_combo.setCurrentText(self.right_year)
-        
-        # Update team dropdowns with teams for selected years
-        left_teams = self.get_teams_for_year(self.left_year)
-        right_teams = self.get_teams_for_year(self.right_year)
-        
+
+    def get_team_feature_data_for_season(self, season: int) -> pd.DataFrame:
+        if season not in self.team_feature_cache:
+            self.team_feature_cache[season] = build_team_feature_rows(season, self.conference_mapping)
+        return self.team_feature_cache[season]
+
+    def get_latest_team_snapshot(self, team_name: str, season: int) -> pd.Series | None:
+        season_features = self.get_team_feature_data_for_season(season)
+        if season_features.empty:
+            return None
+
+        team_rows = season_features[season_features['team_name'] == team_name].copy()
+        if team_rows.empty:
+            return None
+
+        team_rows = team_rows.sort_values(by=['game_date', 'game_id'], ascending=True)
+        snapshot = team_rows.iloc[-1].copy()
+        return snapshot.replace([np.inf, -np.inf], np.nan).fillna(-100)
+
+    def update_team_dropdowns_for_selected_season(self):
+        teams = self.get_teams_for_year(self.selected_season)
+        left_current = self.left_team_widget.team_combo.currentText()
+        right_current = self.right_team_widget.team_combo.currentText()
+
+        self.left_team_widget.team_combo.blockSignals(True)
+        self.right_team_widget.team_combo.blockSignals(True)
+
         self.left_team_widget.team_combo.clear()
         self.right_team_widget.team_combo.clear()
-        
-        self.left_team_widget.team_combo.addItems(left_teams)
-        self.right_team_widget.team_combo.addItems(right_teams)
-        
-        # Set default teams if available
-        if left_teams:
-            self.left_team = left_teams[0]
+        self.left_team_widget.team_combo.addItems(teams)
+        self.right_team_widget.team_combo.addItems(teams)
+
+        if teams:
+            self.left_team = left_current if left_current in teams else teams[0]
+            self.right_team = right_current if right_current in teams else teams[0]
+
             self.left_team_widget.team_combo.setCurrentText(self.left_team)
-            self.left_team_widget.update_logo(self.left_team)
-            
-        if right_teams:
-            self.right_team = right_teams[0]
             self.right_team_widget.team_combo.setCurrentText(self.right_team)
+            self.left_team_widget.update_logo(self.left_team)
             self.right_team_widget.update_logo(self.right_team)
-        
-        # Update team stats
+        else:
+            self.left_team = ""
+            self.right_team = ""
+
+        self.left_team_widget.team_combo.blockSignals(False)
+        self.right_team_widget.team_combo.blockSignals(False)
+
+    def update_ui_with_data(self):
+        # Update season dropdown (left side only, shared by both teams)
+        self.left_team_widget.year_combo.blockSignals(True)
+        self.left_team_widget.year_combo.addItems(self.available_years)
+        self.left_team_widget.year_combo.setCurrentText(self.selected_season)
+        self.left_team_widget.year_combo.blockSignals(False)
+
+        self.left_year = self.selected_season
+        self.right_year = self.selected_season
+        self.update_team_dropdowns_for_selected_season()
         self.update_team_stats()
-    
+
     def update_team_stats(self):
-        # Check if selected years exist in data
-        if self.left_year not in self.all_team_stats:
-            print(f"WARNING: Year {self.left_year} not found in data")
-        if self.right_year not in self.all_team_stats:
-            print(f"WARNING: Year {self.right_year} not found in data")
-        
+        self.left_year = self.selected_season
+        self.right_year = self.selected_season
+
+        if self.selected_season not in self.all_team_stats:
+            print(f"WARNING: Year {self.selected_season} not found in data")
+
         # Update left team stats
-        if (self.left_team and self.left_year in self.all_team_stats and 
-            self.left_team in self.all_team_stats[self.left_year]):
-            self.left_team_stats = self.all_team_stats[self.left_year][self.left_team]
-            # Update conference logo for left team
+        if (
+            self.left_team
+            and self.selected_season in self.all_team_stats
+            and self.left_team in self.all_team_stats[self.selected_season]
+        ):
+            self.left_team_stats = self.all_team_stats[self.selected_season][self.left_team]
             self.left_team_widget.update_conference_logo(self.left_team_stats.conference)
         else:
-            print(f"No stats found for {self.left_team} in {self.left_year} - using empty stats")
+            print(f"No stats found for {self.left_team} in {self.selected_season} - using empty stats")
             self.left_team_stats = TeamStats()
             self.left_team_widget.conf_logo_label.clear()
-        
+
         # Update right team stats
-        if (self.right_team and self.right_year in self.all_team_stats and 
-            self.right_team in self.all_team_stats[self.right_year]):
-            self.right_team_stats = self.all_team_stats[self.right_year][self.right_team]
-            # Update conference logo for right team
+        if (
+            self.right_team
+            and self.selected_season in self.all_team_stats
+            and self.right_team in self.all_team_stats[self.selected_season]
+        ):
+            self.right_team_stats = self.all_team_stats[self.selected_season][self.right_team]
             self.right_team_widget.update_conference_logo(self.right_team_stats.conference)
         else:
-            print(f"No stats found for {self.right_team} in {self.right_year} - using empty stats")
+            print(f"No stats found for {self.right_team} in {self.selected_season} - using empty stats")
             self.right_team_stats = TeamStats()
             self.right_team_widget.conf_logo_label.clear()
-        
-        # Update stats comparison UI
+
         self.update_stats_comparison()
-        
-        # Reset any prediction highlights
         self.left_team_widget.set_win_gradient(False, 0.0)
         self.right_team_widget.set_win_gradient(False, 0.0)
     
@@ -1001,74 +1321,63 @@ class NCAATeamMatchupApp(QMainWindow):
             QMessageBox.warning(self, "Missing Data", "Please select both teams before predicting.")
             return
 
-        print(f"Predicting: {self.left_team} ({self.left_year}) vs {self.right_team} ({self.right_year}) in {self.selected_round}")
+        print(f"Predicting: {self.left_team} ({self.selected_season}) vs {self.right_team} ({self.selected_season}) in {self.selected_round}")
 
         try:
-            left_year_int = int(self.left_year)
-            right_year_int = int(self.right_year)
+            season_int = int(self.selected_season)
             season_type = 3 if self.selected_round == 'NCAA Tournament' else 2
 
-            team1_data = get_data(self.left_team, left_year_int).reset_index(drop=True)
-            team2_data = get_data(self.right_team, right_year_int).reset_index(drop=True)
+            left_snapshot = self.get_latest_team_snapshot(self.left_team, season_int)
+            right_snapshot = self.get_latest_team_snapshot(self.right_team, season_int)
 
-            team1_data['season_type'] = season_type
-            team2_data['season_type'] = season_type
-
-            team1_data.drop(columns=['Unnamed: 0'], inplace=True, errors='ignore')
-            team2_data.drop(columns=['Unnamed: 0'], inplace=True, errors='ignore')
-
-            if team1_data.empty or team2_data.empty:
+            if left_snapshot is None or right_snapshot is None:
                 QMessageBox.warning(
                     self,
                     "Missing Data",
-                    f"Could not find data for {self.left_team} ({self.left_year}) or {self.right_team} ({self.right_year}).",
+                    f"Could not find enough historical data for {self.left_team} or {self.right_team} in {self.selected_season}.",
                 )
                 return
 
-            # Process data in both directions to reduce home/away bias
-            processed_data, _, _ = merge_data(team1_data, team2_data, left_year_int, right_year_int)
-            inverted_data, _, _ = merge_data(team2_data, team1_data, right_year_int, left_year_int)
+            left_team_home_away = 2 if season_type == 3 else 1
+            right_team_home_away = 2 if season_type == 3 else 0
 
-            if processed_data.empty or inverted_data.empty:
-                QMessageBox.warning(
-                    self,
-                    "Missing Data",
-                    "Could not build matchup features for this team/year combination.",
-                )
-                return
+            processed_data = build_matchup_feature_row(
+                left_snapshot,
+                right_snapshot,
+                season=season_int,
+                season_type=season_type,
+                team_home_away=left_team_home_away,
+            )
+            inverted_data = build_matchup_feature_row(
+                right_snapshot,
+                left_snapshot,
+                season=season_int,
+                season_type=season_type,
+                team_home_away=right_team_home_away,
+            )
 
             threshold = 0.50
-            upset_threshold = 0.33
 
             # Determine prediction method: use upset model if season_type == 3, else use regular model
             if season_type == 3:
                 # NCAA Tournament, use upset prediction
-                upset_ordered_data = align_features_for_model(processed_data, self.upset_feature_names)
-                upset_inverted_ordered_data = align_features_for_model(inverted_data, self.upset_feature_names)
-                upset_prob = self.upset_model.predict_proba(upset_ordered_data)[0]
-                upset_inverted_prob = self.upset_model.predict_proba(upset_inverted_ordered_data)[0]
-                average_upset_proba = (upset_prob[1] + upset_inverted_prob[0]) / 2
-                print("Upset probs", upset_prob, upset_inverted_prob)
-                team1_win_prob = round(average_upset_proba * 100, 2)
-                team2_win_prob = round((1 - average_upset_proba) * 100, 2)
-                team1_wins = average_upset_proba > upset_threshold
-                team1_upset = average_upset_proba
+                upset_ordered_data = align_features_for_model(processed_data, self.winner_feature_names)
+                upset_prob = self.lgbm_model.predict_proba(upset_ordered_data)[0]
+                print("Upset probs", upset_prob)
+                team1_win_prob = round(upset_prob[1] * 100, 2)
+                team2_win_prob = round((1 - upset_prob[1]) * 100, 2)
+                team1_wins = upset_prob[1] > threshold
             else:
                 # Non-Tournament, use regular prediction
                 ordered_data = align_features_for_model(processed_data, self.winner_feature_names)
-                inverted_ordered_data = align_features_for_model(inverted_data, self.winner_feature_names)
 
                 proba_1 = self.lgbm_model.predict_proba(ordered_data)[0]
-                proba_2 = self.lgbm_model.predict_proba(inverted_ordered_data)[0]
 
-                print(proba_1, proba_2)
+                print(proba_1)
                 team1_proba_dir1 = proba_1[1]
-                team1_proba_dir2 = proba_2[0]
-                average_proba = (team1_proba_dir1 + team1_proba_dir2) / 2
-                team1_wins = average_proba > threshold
-                team1_win_prob = round(average_proba * 100, 2)
-                team2_win_prob = round((1 - average_proba) * 100, 2)
-                team1_upset = None
+                team1_wins = team1_proba_dir1 > threshold
+                team1_win_prob = round(team1_proba_dir1 * 100, 2)
+                team2_win_prob = round((1 - team1_proba_dir1) * 100, 2)
 
             # Update UI to highlight winner and show probabilities
             self.left_team_widget.set_win_gradient(team1_wins, team1_win_prob)
