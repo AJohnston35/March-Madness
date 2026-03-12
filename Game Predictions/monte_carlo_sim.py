@@ -620,20 +620,52 @@ def run_bracket(games, prob_lookup=None):
 
 def simulate_tournament(teams, prob_lookup=None, sims=1000):
 
-    results = {}
+    if len(teams) != 16:
+        raise ValueError("simulate_tournament expects exactly 16 teams.")
 
-    for _ in range(sims):
+    n = len(teams)
+    prob_matrix = np.full((n, n), 0.5, dtype=float)
 
-        bracket = build_bracket(teams)
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            if prob_lookup:
+                prob_matrix[i, j] = float(prob_lookup(teams[i], teams[j]))
+            else:
+                prob_matrix[i, j] = float(_predict_win_prob(teams[i], teams[j]))
 
-        winner = run_bracket(bracket, prob_lookup)
+    rng = np.random.default_rng()
 
-        results[winner.name] = results.get(winner.name, 0) + 1
+    def play_match(a_idx, b_idx):
+        p = prob_matrix[a_idx, b_idx]
+        r = rng.random(size=a_idx.shape[0])
+        return np.where(r < p, a_idx, b_idx)
 
-        print(f"Simulation {_+1} of {sims}: {winner.name}")
+    g1 = play_match(np.full(sims, 8), np.full(sims, 15))
+    g2 = play_match(np.full(sims, 11), np.full(sims, 12))
+    g3 = play_match(np.full(sims, 9), np.full(sims, 14))
+    g4 = play_match(np.full(sims, 10), np.full(sims, 13))
 
-    for team in results:
-        results[team] /= sims
+    g5 = play_match(np.full(sims, 7), g1)
+    g6 = play_match(np.full(sims, 4), g2)
+    g7 = play_match(np.full(sims, 6), g3)
+    g8 = play_match(np.full(sims, 5), g4)
+
+    g9 = play_match(np.full(sims, 0), g5)
+    g10 = play_match(np.full(sims, 3), g6)
+    g11 = play_match(np.full(sims, 1), g7)
+    g12 = play_match(np.full(sims, 2), g8)
+
+    g13 = play_match(g9, g10)
+    g14 = play_match(g11, g12)
+    winners = play_match(g13, g14)
+
+    for i, w in enumerate(winners, start=1):
+        print(f"Simulation {i} of {sims}: {teams[w].name}")
+
+    counts = np.bincount(winners, minlength=n).astype(float)
+    results = {teams[i].name: counts[i] / sims for i in range(n) if counts[i] > 0}
 
     return results
 
@@ -663,7 +695,7 @@ if __name__ == "__main__":
         Team("LSU",16),
     ]
 
-    results = simulate_tournament(teams, None, sims=1000)
+    results = simulate_tournament(teams, None, sims=100000)
 
     for team, prob in sorted(results.items(), key=lambda x: -x[1]):
         print(f"{team}: {prob*100:.1f}%")
