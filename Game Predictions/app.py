@@ -1360,13 +1360,21 @@ class NCAATeamMatchupApp(QMainWindow):
 
             # Determine prediction method: use upset model if season_type == 3, else use regular model
             if season_type == 3:
-                # NCAA Tournament, use upset prediction
+                # NCAA Tournament, use upset prediction (average normal and inverted orders)
                 upset_ordered_data = align_features_for_model(processed_data, self.winner_feature_names)
+                inverted_upset_ordered_data = align_features_for_model(inverted_data, self.winner_feature_names)
+                
                 upset_prob = self.lgbm_model.predict_proba(upset_ordered_data)[0]
-                print("Upset probs", upset_prob)
-                team1_win_prob = round(upset_prob[1] * 100, 2)
-                team2_win_prob = round((1 - upset_prob[1]) * 100, 2)
-                team1_wins = upset_prob[1] > threshold
+                upset_prob_inv = self.lgbm_model.predict_proba(inverted_upset_ordered_data)[0]
+                print("Upset probs", upset_prob, "| Inverted:", upset_prob_inv)
+
+                # Average probabilities between the two orders
+                avg_team1_prob = (upset_prob[1] + (1 - upset_prob_inv[1])) / 2
+                avg_team2_prob = (upset_prob[0] + (1 - upset_prob_inv[0])) / 2
+
+                team1_win_prob = round(avg_team1_prob * 100, 2)
+                team2_win_prob = round(avg_team2_prob * 100, 2)
+                team1_wins = avg_team1_prob > threshold
             else:
                 # Non-Tournament, use regular prediction
                 ordered_data = align_features_for_model(processed_data, self.winner_feature_names)

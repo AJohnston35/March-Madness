@@ -535,6 +535,7 @@ def _resolve_season(team_a: Team, team_b: Team) -> int:
 
 
 def _predict_win_prob(team_a: Team, team_b: Team) -> float:
+    # Modified logic for neutral court - average prediction and reversed prediction
     model, feature_names = _load_model()
     season = _resolve_season(team_a, team_b)
     left_snapshot = _get_latest_team_snapshot(team_a.name, season)
@@ -546,6 +547,7 @@ def _predict_win_prob(team_a: Team, team_b: Team) -> float:
     season_type = 3
     team_home_away = 2
 
+    # Normal direction
     processed_data = build_matchup_feature_row(
         left_snapshot,
         right_snapshot,
@@ -553,17 +555,31 @@ def _predict_win_prob(team_a: Team, team_b: Team) -> float:
         season_type=season_type,
         team_home_away=team_home_away,
     )
-
     ordered_data = align_features_for_model(processed_data, feature_names)
     proba = model.predict_proba(ordered_data)[0]
-    return float(proba[1])
+    proba_a = float(proba[1])
 
+    # Reverse direction (swap home/away roles)
+    processed_data_inv = build_matchup_feature_row(
+        right_snapshot,
+        left_snapshot,
+        season=season,
+        season_type=season_type,
+        team_home_away=team_home_away,
+    )
+    ordered_data_inv = align_features_for_model(processed_data_inv, feature_names)
+    proba_inv = model.predict_proba(ordered_data_inv)[0]
+    proba_b = float(proba_inv[1])
+
+    # Because in the reverse, we get probability of team_b beating team_a, so we want probability of team_a: 1 - proba_b
+    p_avg = (proba_a + (1.0 - proba_b)) / 2.0
+    return p_avg
 
 # -----------------------------
 # BUILD BRACKET
 # -----------------------------
 
-def build_bracket(seeds):
+def build_sec_bracket(seeds):
     """
     seeds = list of 16 Team objects sorted by seed
     """
@@ -600,7 +616,6 @@ def build_bracket(seeds):
         g13,g14,
         g15
     ]
-
 
 # -----------------------------
 # RUN TOURNAMENT
@@ -647,9 +662,9 @@ def simulate_tournament(teams, prob_lookup=None, sims=1000):
     g3 = play_match(np.full(sims, 9), np.full(sims, 14))
     g4 = play_match(np.full(sims, 10), np.full(sims, 13))
 
-    g5 = play_match(np.full(sims, 7), g1)
-    g6 = play_match(np.full(sims, 4), g2)
-    g7 = play_match(np.full(sims, 6), g3)
+    g5 = play_match(np.full(sims, 7), np.full(sims, 8))
+    g6 = play_match(np.full(sims, 4), np.full(sims, 11))
+    g7 = play_match(np.full(sims, 6), np.full(sims, 14))
     g8 = play_match(np.full(sims, 5), g4)
 
     g9 = play_match(np.full(sims, 0), g5)
@@ -699,7 +714,3 @@ if __name__ == "__main__":
 
     for team, prob in sorted(results.items(), key=lambda x: -x[1]):
         print(f"{team}: {prob*100:.1f}%")
-
-# Get the odds of each team winning the tournament, making a run, getting upset, etc.
-#for i in range(100000):
-  #  print(i)
