@@ -8,7 +8,6 @@ import warnings
 warnings.filterwarnings('ignore')
 
 GAME_RESULTS_DIR = Path('Data/game_results')
-TEAM_METRICS_PATH = Path('Data/team_metrics.csv')
 CONFERENCE_MAP_PATH = Path('Data/kenpom/REF _ NCAAM Conference and ESPN Team Name Mapping.csv')
 REQUIRED_BASE_COLUMNS = [
     'team_score',
@@ -44,12 +43,8 @@ REQUIRED_BASE_COLUMNS = [
 ]
 
 
-def process_games_file(games_path: Path, base_player_data: pd.DataFrame, conference_mapping: pd.DataFrame) -> pd.DataFrame:
+def process_games_file(games_path: Path, conference_mapping: pd.DataFrame) -> pd.DataFrame:
     df = pd.read_csv(games_path)
-    player_data = base_player_data.copy()
-
-    if 'game_id' in player_data.columns:
-        player_data.drop(columns=['game_id'], inplace=True)
 
     for col in REQUIRED_BASE_COLUMNS:
         if col not in df.columns:
@@ -88,6 +83,22 @@ def process_games_file(games_path: Path, base_player_data: pd.DataFrame, confere
     df_merged['def_eff'] = (df_merged['team_score_opponent'] / df_merged['poss_opponent']) * 100
     df_merged['net_eff'] = df_merged['off_eff'] - df_merged['def_eff']
 
+    # For each season and date, calculate league-wide average off/def eff for all prior days
+    df_merged = df_merged.sort_values(['season', 'game_date', 'game_id'])
+    league_daily = (
+        df_merged.groupby(['season', 'game_date'], as_index=False)
+        .agg(
+            league_off_eff=('off_eff', 'mean'),
+            league_def_eff=('def_eff', 'mean')
+        )
+    )
+    league_daily[['league_avg_off_eff', 'league_avg_def_eff']] = (
+        league_daily.groupby('season')[['league_off_eff', 'league_def_eff']]
+        .transform(lambda s: s.shift(1).expanding().mean())
+    )
+
+    
+
     df_merged['efg'] = (
         df_merged['field_goals_made'] + (0.5 * df_merged['three_point_field_goals_made'])
     ) / df_merged['field_goals_attempted']
@@ -108,7 +119,16 @@ def process_games_file(games_path: Path, base_player_data: pd.DataFrame, confere
     df_merged['two_pm'] = df_merged['field_goals_made'] - df_merged['three_point_field_goals_made']
     df_merged['two_pa'] = df_merged['field_goals_attempted'] - df_merged['three_point_field_goals_attempted']
     df_merged['two_pct'] = df_merged['two_pm'] / df_merged['two_pa']
-
+    df_merged['three_pct'] = df_merged['three_point_field_goals_made'] / df_merged['three_point_field_goals_attempted']
+    df_merged['three_pct_opponent'] = df_merged['three_point_field_goals_made_opponent'] / df_merged['three_point_field_goals_attempted_opponent']
+    df_merged['three_attempt_rate'] = df_merged['three_point_field_goals_attempted'] / df_merged['field_goals_attempted']
+    df_merged['allowed_three_attempt_rate'] = df_merged['three_point_field_goals_attempted_opponent'] / df_merged['field_goals_attempted_opponent']
+    df_merged['three_variance'] = df_merged.groupby('team_id')['three_pct'].transform(lambda x: x.shift(1).rolling(10).std())
+    df_merged['score_variance'] = df_merged.groupby('team_id')['team_score'].transform(lambda x: x.shift(1).rolling(10).std())
+    df_merged['def_score_variance'] = df_merged.groupby('team_id')['opponent_team_score'].transform(lambda x: x.shift(1).rolling(10).std())
+    df_merged['off_eff_variance'] = df_merged.groupby('team_id')['off_eff'].transform(lambda x: x.shift(1).rolling(10).std())
+    df_merged['pace_variance'] = df_merged.groupby('team_id')['poss'].transform(lambda x: x.shift(1).rolling(10).std())
+    
     df_merged['two_pm_opponent'] = (
         df_merged['field_goals_made_opponent'] - df_merged['three_point_field_goals_made_opponent']
     )
@@ -254,6 +274,7 @@ def process_games_file(games_path: Path, base_player_data: pd.DataFrame, confere
         (df_merged['points_for'] ** k) + (df_merged['points_against'] ** k)
     )
     df_merged['luck'] = df_merged['win_loss_pct'] - df_merged['pythagorean_win_pct']
+
     df_merged.drop(
         columns=['team_score', 'opponent_team_score', 'points_for', 'points_against', 'pythagorean_win_pct'],
         inplace=True,
@@ -261,10 +282,44 @@ def process_games_file(games_path: Path, base_player_data: pd.DataFrame, confere
     )
 
     df_final = df_merged.merge(df_merged, on=['game_id', 'season', 'season_type', 'game_date'], suffixes=('_a', '_b'))
+
     df_final = df_final[df_final['team_id_a'] != df_final['team_id_b']]
+
+    df_final = df_final.merge(
+        league_daily[['season', 'game_date', 'league_avg_off_eff', 'league_avg_def_eff']],
+        on=['season', 'game_date'],
+        how='left'
+    )
 
     df_final['sos'] = df_final.groupby('team_id_a')['net_eff_avg_b'].transform(lambda x: x.shift(1).expanding().mean())
     df_final['sos_opp'] = df_final.groupby('team_id_b')['net_eff_avg_a'].transform(lambda x: x.shift(1).expanding().mean())
+
+    df_final['adj_factor_def_a'] = df_final['league_avg_def_eff'] / df_final['def_eff_avg_b']
+    df_final['adj_factor_off_a'] = df_final['league_avg_off_eff'] / df_final['off_eff_avg_b']
+    df_final['adj_factor_def_b'] = df_final['league_avg_def_eff'] / df_final['def_eff_avg_a']
+    df_final['adj_factor_off_b'] = df_final['league_avg_off_eff'] / df_final['off_eff_avg_a']
+
+    df_final['adj_off_eff_a'] = df_final['off_eff_avg_a'] * df_final['adj_factor_def_a']
+    df_final['adj_def_eff_a'] = df_final['def_eff_avg_a'] * df_final['adj_factor_off_a']
+    df_final['adj_net_eff_a'] = df_final['adj_off_eff_a'] - df_final['adj_def_eff_a']
+    df_final['adj_off_eff_b'] = df_final['off_eff_avg_b'] * df_final['adj_factor_def_b']
+    df_final['adj_def_eff_b'] = df_final['def_eff_avg_b'] * df_final['adj_factor_off_b']
+    df_final['adj_net_eff_b'] = df_final['adj_off_eff_b'] - df_final['adj_def_eff_b']
+
+    df_final['adj_sos'] = df_final.groupby('team_id_a')['adj_net_eff_b'].transform(lambda x: x.shift(1).expanding().mean())
+    df_final['adj_sos_opp'] = df_final.groupby('team_id_b')['adj_net_eff_a'].transform(lambda x: x.shift(1).expanding().mean())
+
+    df_final['power_rating_a'] = df_final['adj_net_eff_a'] + df_final['adj_sos']
+    df_final['power_rating_b'] = df_final['adj_net_eff_b'] + df_final['adj_sos_opp']
+
+    df_final.drop(
+        columns=[
+            'adj_factor_def_a', 'adj_factor_off_a', 'adj_factor_def_b', 'adj_factor_off_b',
+            'league_avg_off_eff', 'league_avg_def_eff'
+        ],
+        inplace=True
+    )
+
     df_final['off_vs_def'] = df_final['off_eff_avg_a'] - df_final['def_eff_avg_b']
     df_final['def_vs_off'] = df_final['off_eff_avg_b'] - df_final['def_eff_avg_a']
 
@@ -320,7 +375,6 @@ def get_year_from_games_filename(path: Path) -> str:
 
 
 def main() -> None:
-    base_player_data = pd.read_csv(TEAM_METRICS_PATH)
 
     conference_mapping = pd.read_csv(
         CONFERENCE_MAP_PATH,
@@ -342,7 +396,7 @@ def main() -> None:
     all_years = []
     for games_file in games_files:
         year = get_year_from_games_filename(games_file)
-        yearly_df = process_games_file(games_file, base_player_data, conference_mapping)
+        yearly_df = process_games_file(games_file, conference_mapping)
         yearly_output = Path(f'Data/cleaned_data/games_{year}_final.csv')
         yearly_df.to_csv(yearly_output, index=False)
         all_years.append(yearly_df)
