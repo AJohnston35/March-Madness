@@ -117,6 +117,7 @@ AVG_BASE_COLS = [
     'orb',
     'drb',
     'ftr',
+    'foul_rate',
     'ppp',
     'two_pct',
     'two_pct_opponent',
@@ -127,6 +128,10 @@ AVG_BASE_COLS = [
     'lead_vs_outcome',
     'fast_break_pct',
     'points_off_turnover_pct',
+    'three_pct',
+    'three_pct_opponent',
+    'three_attempt_rate',
+    'allowed_three_attempt_rate',
 ]
 
 
@@ -140,6 +145,10 @@ def align_features_for_model(df: pd.DataFrame, feature_names) -> pd.DataFrame:
 
 
 def _safe_divide(num, den):
+    if isinstance(den, (int, float, np.floating)):
+        if den == 0 or pd.isna(den):
+            return np.nan
+        return num / den
     den = den.replace(0, np.nan)
     return num / den
 
@@ -150,7 +159,7 @@ def load_conference_mapping() -> pd.DataFrame:
         usecols=['Conference', 'Mapped ESPN Team Name']
     ).dropna()
     conference_mapping['Mapped ESPN Team Name'] = conference_mapping['Mapped ESPN Team Name'].replace(
-        {'Hawaii': "Hawai'i", 'St. Francis (PA)': 'Saint Francis', 'San Jose State': 'San Jose State'}
+        {'Hawaii': "Hawai'i", 'St. Francis (PA)': 'Saint Francis', 'San Jose State': 'San JosÃ© State'}
     )
     conference_mapping['team_location_key'] = (
         conference_mapping['Mapped ESPN Team Name'].astype(str).str.strip().str.lower()
@@ -206,6 +215,20 @@ def build_team_feature_rows(season: int, conference_mapping: pd.DataFrame) -> pd
     df_merged['def_eff'] = _safe_divide(df_merged['team_score_opponent'], df_merged['poss_opponent']) * 100
     df_merged['net_eff'] = df_merged['off_eff'] - df_merged['def_eff']
 
+    # League-wide averages up to the prior day (per season)
+    df_merged = df_merged.sort_values(['season', 'game_date', 'game_id'])
+    league_daily = (
+        df_merged.groupby(['season', 'game_date'], as_index=False)
+        .agg(
+            league_off_eff=('off_eff', 'mean'),
+            league_def_eff=('def_eff', 'mean')
+        )
+    )
+    league_daily[['league_avg_off_eff', 'league_avg_def_eff']] = (
+        league_daily.groupby('season')[['league_off_eff', 'league_def_eff']]
+        .transform(lambda s: s.shift(1).expanding().mean())
+    )
+
     df_merged['efg'] = _safe_divide(
         (df_merged['field_goals_made'] + (0.5 * df_merged['three_point_field_goals_made'])),
         df_merged['field_goals_attempted'],
@@ -231,6 +254,38 @@ def build_team_feature_rows(season: int, conference_mapping: pd.DataFrame) -> pd
     df_merged['two_pa'] = df_merged['field_goals_attempted'] - df_merged['three_point_field_goals_attempted']
     df_merged['two_pct'] = _safe_divide(df_merged['two_pm'], df_merged['two_pa'])
 
+    df_merged['three_pct'] = _safe_divide(
+        df_merged['three_point_field_goals_made'],
+        df_merged['three_point_field_goals_attempted']
+    )
+    df_merged['three_pct_opponent'] = _safe_divide(
+        df_merged['three_point_field_goals_made_opponent'],
+        df_merged['three_point_field_goals_attempted_opponent']
+    )
+    df_merged['three_attempt_rate'] = _safe_divide(
+        df_merged['three_point_field_goals_attempted'],
+        df_merged['field_goals_attempted']
+    )
+    df_merged['allowed_three_attempt_rate'] = _safe_divide(
+        df_merged['three_point_field_goals_attempted_opponent'],
+        df_merged['field_goals_attempted_opponent']
+    )
+    df_merged['three_variance'] = df_merged.groupby('team_id')['three_pct'].transform(
+        lambda x: x.shift(1).rolling(10).std()
+    )
+    df_merged['score_variance'] = df_merged.groupby('team_id')['team_score'].transform(
+        lambda x: x.shift(1).rolling(10).std()
+    )
+    df_merged['def_score_variance'] = df_merged.groupby('team_id')['opponent_team_score'].transform(
+        lambda x: x.shift(1).rolling(10).std()
+    )
+    df_merged['off_eff_variance'] = df_merged.groupby('team_id')['off_eff'].transform(
+        lambda x: x.shift(1).rolling(10).std()
+    )
+    df_merged['pace_variance'] = df_merged.groupby('team_id')['poss'].transform(
+        lambda x: x.shift(1).rolling(10).std()
+    )
+
     df_merged['two_pm_opponent'] = (
         df_merged['field_goals_made_opponent'] - df_merged['three_point_field_goals_made_opponent']
     )
@@ -246,6 +301,10 @@ def build_team_feature_rows(season: int, conference_mapping: pd.DataFrame) -> pd
     df_merged['lead_vs_outcome'] = df_merged['largest_lead'] - df_merged['point_differential']
     df_merged['fast_break_pct'] = _safe_divide(df_merged['fast_break_points'], df_merged['team_score'])
     df_merged['points_off_turnover_pct'] = _safe_divide(df_merged['turnover_points'], df_merged['team_score'])
+    df_merged['foul_rate'] = _safe_divide(
+        df_merged['free_throws_attempted_opponent'],
+        df_merged['field_goals_attempted_opponent']
+    )
 
     maybe_keep = [
         'field_goals_made', 'field_goals_attempted', 'three_point_field_goals_made',
@@ -260,7 +319,7 @@ def build_team_feature_rows(season: int, conference_mapping: pd.DataFrame) -> pd
         'total_rebounds', 'total_technical_fouls', 'total_turnovers', 'turnover_points'
     ]
     drop_opponent_cols = [
-        'team_home_away_opponent', 'team_score_opponent', 'team_winner_opponent',
+        'team_id_opponent', 'team_home_away_opponent', 'team_score_opponent', 'team_winner_opponent',
         'assists_opponent', 'blocks_opponent', 'defensive_rebounds_opponent', 'fast_break_points_opponent',
         'field_goal_pct_opponent', 'field_goals_made_opponent', 'field_goals_attempted_opponent',
         'flagrant_fouls_opponent', 'fouls_opponent', 'free_throw_pct_opponent', 'free_throws_made_opponent',
@@ -326,6 +385,12 @@ def build_team_feature_rows(season: int, conference_mapping: pd.DataFrame) -> pd
     drop_avg_bases = [c for c in AVG_BASE_COLS if c not in ['team_score', 'opponent_team_score']]
     df_merged.drop(columns=drop_avg_bases, inplace=True, errors='ignore')
 
+    df_merged = df_merged.merge(
+        league_daily[['season', 'game_date', 'league_avg_off_eff', 'league_avg_def_eff']],
+        on=['season', 'game_date'],
+        how='left'
+    )
+
     df_merged['conference_strength'] = df_merged.groupby('short_conference_name')['net_eff_avg'].transform(
         lambda x: x.shift(1).expanding().mean()
     )
@@ -369,16 +434,59 @@ def build_team_feature_rows(season: int, conference_mapping: pd.DataFrame) -> pd
         errors='ignore'
     )
 
-    sos_base = df_merged[['game_id', 'season', 'season_type', 'game_date', 'team_id', 'net_eff_avg']].copy()
-    sos_pairs = sos_base.merge(
-        sos_base, on=['game_id', 'season', 'season_type', 'game_date'], suffixes=('_a', '_b')
+    matchup_base = df_merged.merge(
+        df_merged,
+        on=['game_id', 'season', 'season_type', 'game_date'],
+        suffixes=('_a', '_b')
     )
-    sos_pairs = sos_pairs[sos_pairs['team_id_a'] != sos_pairs['team_id_b']]
-    sos_pairs = sos_pairs.sort_values(by=['game_date', 'game_id'], ascending=True)
-    sos_pairs['sos'] = sos_pairs.groupby('team_id_a')['net_eff_avg_b'].transform(
+    matchup_base = matchup_base[matchup_base['team_id_a'] != matchup_base['team_id_b']]
+    matchup_base = matchup_base.merge(
+        league_daily[['season', 'game_date', 'league_avg_off_eff', 'league_avg_def_eff']],
+        on=['season', 'game_date'],
+        how='left'
+    )
+    matchup_base = matchup_base.sort_values(by=['game_date', 'game_id'], ascending=True)
+
+    matchup_base['sos'] = matchup_base.groupby('team_id_a')['net_eff_avg_b'].transform(
         lambda x: x.shift(1).expanding().mean()
     )
-    sos_map = sos_pairs[['game_id', 'team_id_a', 'sos']].rename(columns={'team_id_a': 'team_id'})
+    matchup_base['sos_opp'] = matchup_base.groupby('team_id_b')['net_eff_avg_a'].transform(
+        lambda x: x.shift(1).expanding().mean()
+    )
+
+    matchup_base['adj_factor_def_a'] = matchup_base['league_avg_def_eff'] / matchup_base['def_eff_avg_b']
+    matchup_base['adj_factor_off_a'] = matchup_base['league_avg_off_eff'] / matchup_base['off_eff_avg_b']
+    matchup_base['adj_factor_def_b'] = matchup_base['league_avg_def_eff'] / matchup_base['def_eff_avg_a']
+    matchup_base['adj_factor_off_b'] = matchup_base['league_avg_off_eff'] / matchup_base['off_eff_avg_a']
+
+    matchup_base['adj_off_eff_a'] = matchup_base['off_eff_avg_a'] * matchup_base['adj_factor_def_a']
+    matchup_base['adj_def_eff_a'] = matchup_base['def_eff_avg_a'] * matchup_base['adj_factor_off_a']
+    matchup_base['adj_net_eff_a'] = matchup_base['adj_off_eff_a'] - matchup_base['adj_def_eff_a']
+    matchup_base['adj_off_eff_b'] = matchup_base['off_eff_avg_b'] * matchup_base['adj_factor_def_b']
+    matchup_base['adj_def_eff_b'] = matchup_base['def_eff_avg_b'] * matchup_base['adj_factor_off_b']
+    matchup_base['adj_net_eff_b'] = matchup_base['adj_off_eff_b'] - matchup_base['adj_def_eff_b']
+
+    matchup_base['adj_sos'] = matchup_base.groupby('team_id_a')['adj_net_eff_b'].transform(
+        lambda x: x.shift(1).expanding().mean()
+    )
+    matchup_base['adj_sos_opp'] = matchup_base.groupby('team_id_b')['adj_net_eff_a'].transform(
+        lambda x: x.shift(1).expanding().mean()
+    )
+
+    matchup_base['power_rating_a'] = matchup_base['adj_net_eff_a'] + matchup_base['adj_sos']
+    matchup_base['power_rating_b'] = matchup_base['adj_net_eff_b'] + matchup_base['adj_sos_opp']
+
+    sos_map = matchup_base[
+        ['game_id', 'team_id_a', 'sos', 'adj_sos', 'adj_off_eff_a', 'adj_def_eff_a', 'adj_net_eff_a', 'power_rating_a']
+    ].rename(
+        columns={
+            'team_id_a': 'team_id',
+            'adj_off_eff_a': 'adj_off_eff',
+            'adj_def_eff_a': 'adj_def_eff',
+            'adj_net_eff_a': 'adj_net_eff',
+            'power_rating_a': 'power_rating'
+        }
+    )
     df_merged = df_merged.merge(sos_map, on=['game_id', 'team_id'], how='left')
 
     return df_merged
@@ -391,12 +499,85 @@ def build_matchup_feature_row(
     season_type: int,
     team_home_away: int,
 ) -> pd.DataFrame:
-    def val(row: pd.Series, column: str, default: float = -100.0) -> float:
+    def val(row: pd.Series, column: str, default: float = np.nan) -> float:
         if column not in row or pd.isna(row[column]):
             return default
         return float(row[column])
 
+    def val_or_nan(row: pd.Series, column: str) -> float:
+        if column not in row or pd.isna(row[column]):
+            return np.nan
+        return float(row[column])
+
+    def safe_scalar_divide(num: float, den: float) -> float:
+        if den == 0 or pd.isna(den):
+            return np.nan
+        return num / den
+
     exp_poss = (val(left_snapshot, 'poss_avg') + val(right_snapshot, 'poss_avg')) / 2
+
+    left_date = pd.to_datetime(left_snapshot.get('game_date', None), errors='coerce')
+    right_date = pd.to_datetime(right_snapshot.get('game_date', None), errors='coerce')
+    if pd.isna(right_date) or (not pd.isna(left_date) and left_date >= right_date):
+        league_avg_off_eff = val_or_nan(left_snapshot, 'league_avg_off_eff')
+        league_avg_def_eff = val_or_nan(left_snapshot, 'league_avg_def_eff')
+    else:
+        league_avg_off_eff = val_or_nan(right_snapshot, 'league_avg_off_eff')
+        league_avg_def_eff = val_or_nan(right_snapshot, 'league_avg_def_eff')
+
+    off_eff_avg_a = val_or_nan(left_snapshot, 'off_eff_avg')
+    def_eff_avg_a = val_or_nan(left_snapshot, 'def_eff_avg')
+    off_eff_avg_b = val_or_nan(right_snapshot, 'off_eff_avg')
+    def_eff_avg_b = val_or_nan(right_snapshot, 'def_eff_avg')
+
+    adj_factor_def_a = safe_scalar_divide(league_avg_def_eff, def_eff_avg_b)
+    adj_factor_off_a = safe_scalar_divide(league_avg_off_eff, off_eff_avg_b)
+    adj_factor_def_b = safe_scalar_divide(league_avg_def_eff, def_eff_avg_a)
+    adj_factor_off_b = safe_scalar_divide(league_avg_off_eff, off_eff_avg_a)
+
+    adj_off_eff_a = off_eff_avg_a * adj_factor_def_a
+    adj_def_eff_a = def_eff_avg_a * adj_factor_off_a
+    adj_net_eff_a = adj_off_eff_a - adj_def_eff_a
+    adj_off_eff_b = off_eff_avg_b * adj_factor_def_b
+    adj_def_eff_b = def_eff_avg_b * adj_factor_off_b
+    adj_net_eff_b = adj_off_eff_b - adj_def_eff_b
+
+    adj_sos_a = val_or_nan(left_snapshot, 'adj_sos')
+    adj_sos_b = val_or_nan(right_snapshot, 'adj_sos')
+    power_rating_a = adj_net_eff_a + adj_sos_a
+    power_rating_b = adj_net_eff_b + adj_sos_b
+
+    three_attempt_rate_avg_a = val(left_snapshot, 'three_attempt_rate_avg')
+    three_attempt_rate_avg_b = val(right_snapshot, 'three_attempt_rate_avg')
+    allowed_three_attempt_rate_avg_a = val(left_snapshot, 'allowed_three_attempt_rate_avg')
+    allowed_three_attempt_rate_avg_b = val(right_snapshot, 'allowed_three_attempt_rate_avg')
+    three_pct_avg_a = val(left_snapshot, 'three_pct_avg')
+    three_pct_avg_b = val(right_snapshot, 'three_pct_avg')
+    three_pct_opponent_avg_a = val(left_snapshot, 'three_pct_opponent_avg')
+    three_pct_opponent_avg_b = val(right_snapshot, 'three_pct_opponent_avg')
+    two_pct_avg_a = val(left_snapshot, 'two_pct_avg')
+    two_pct_avg_b = val(right_snapshot, 'two_pct_avg')
+    two_pct_opponent_avg_a = val(left_snapshot, 'two_pct_opponent_avg')
+    two_pct_opponent_avg_b = val(right_snapshot, 'two_pct_opponent_avg')
+    ftr_avg_a = val(left_snapshot, 'ftr_avg')
+    ftr_avg_b = val(right_snapshot, 'ftr_avg')
+    foul_rate_avg_a = val(left_snapshot, 'foul_rate_avg')
+    foul_rate_avg_b = val(right_snapshot, 'foul_rate_avg')
+
+    threes_advantage = (three_attempt_rate_avg_a * three_pct_avg_a) - (
+        allowed_three_attempt_rate_avg_b * three_pct_opponent_avg_b
+    )
+    threes_disadvantage = (allowed_three_attempt_rate_avg_a * three_pct_opponent_avg_a) - (
+        three_attempt_rate_avg_b * three_pct_avg_b
+    )
+    two_pointers_advantage = ((1 - three_attempt_rate_avg_a) * two_pct_avg_a) - (
+        (1 - allowed_three_attempt_rate_avg_b) * two_pct_opponent_avg_b
+    )
+    two_pointers_disadvantage = ((1 - allowed_three_attempt_rate_avg_a) * two_pct_opponent_avg_a) - (
+        (1 - three_attempt_rate_avg_b) * two_pct_avg_b
+    )
+    free_throws_advantage = ftr_avg_a - foul_rate_avg_b
+    free_throws_disadvantage = foul_rate_avg_a - ftr_avg_b
 
     feature_row = {
         'season': int(season),
@@ -405,6 +586,14 @@ def build_matchup_feature_row(
         'is_early_season': int(val(left_snapshot, 'is_early_season', 1.0)),
         'sos': val(left_snapshot, 'sos'),
         'sos_opp': val(right_snapshot, 'sos'),
+        'threes_advantage': threes_advantage,
+        'threes_disadvantage': threes_disadvantage,
+        'two_pointers_advantage': two_pointers_advantage,
+        'two_pointers_disadvantage': two_pointers_disadvantage,
+        'free_throws_advantage': free_throws_advantage,
+        'free_throws_disadvantage': free_throws_disadvantage,
+        'adj_sos': val(left_snapshot, 'adj_sos'),
+        'adj_sos_opp': val(right_snapshot, 'adj_sos'),
         'off_vs_def': val(left_snapshot, 'off_eff_avg') - val(right_snapshot, 'def_eff_avg'),
         'def_vs_off': val(right_snapshot, 'off_eff_avg') - val(left_snapshot, 'def_eff_avg'),
         'tov_vs_stl': val(left_snapshot, 'tov_avg') - val(right_snapshot, 'stl_rate_avg'),
@@ -420,6 +609,13 @@ def build_matchup_feature_row(
         'home_def_away_off': val(left_snapshot, 'home_def_eff') - val(right_snapshot, 'away_off_eff'),
         'away_off_home_def': val(left_snapshot, 'away_off_eff') - val(right_snapshot, 'home_def_eff'),
         'away_def_home_off': val(left_snapshot, 'away_def_eff') - val(right_snapshot, 'home_off_eff'),
+        'three_variance_diff': val(left_snapshot, 'three_variance') - val(right_snapshot, 'three_variance'),
+        'score_variance_diff': val(left_snapshot, 'score_variance') - val(right_snapshot, 'score_variance'),
+        'def_score_variance_diff': (
+            val(left_snapshot, 'def_score_variance') - val(right_snapshot, 'def_score_variance')
+        ),
+        'off_eff_variance_diff': val(left_snapshot, 'off_eff_variance') - val(right_snapshot, 'off_eff_variance'),
+        'pace_variance_diff': val(left_snapshot, 'pace_variance') - val(right_snapshot, 'pace_variance'),
         'last_10_efficiency_diff': val(left_snapshot, 'last_10_efficiency') - val(right_snapshot, 'last_10_efficiency'),
     }
 
@@ -440,6 +636,10 @@ def build_matchup_feature_row(
         val(left_snapshot, 'conference_nonconf_win_pct') - val(right_snapshot, 'conference_nonconf_win_pct')
     )
     feature_row['luck_diff'] = val(left_snapshot, 'luck') - val(right_snapshot, 'luck')
+    feature_row['adj_off_eff_diff'] = adj_off_eff_a - adj_off_eff_b
+    feature_row['adj_def_eff_diff'] = adj_def_eff_a - adj_def_eff_b
+    feature_row['adj_net_eff_diff'] = adj_net_eff_a - adj_net_eff_b
+    feature_row['power_rating_diff'] = power_rating_a - power_rating_b
 
     return pd.DataFrame([feature_row]).replace([np.inf, -np.inf], np.nan).fillna(-100)
 
