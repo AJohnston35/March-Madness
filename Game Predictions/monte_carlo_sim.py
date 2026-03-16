@@ -8,6 +8,8 @@ warnings.filterwarnings("ignore")
 import joblib
 import numpy as np
 import pandas as pd
+import data_processing as dp
+import model_ensemble as ensemble
 
 # -----------------------------
 # TEAM
@@ -87,10 +89,8 @@ def play_game(game, prob_lookup=None):
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _GAME_PRED_DIR = Path(__file__).resolve().parent
 _DATA_DIR = _PROJECT_ROOT / "Data"
-_MODEL_PATH = _GAME_PRED_DIR / "models" / "lgbm_winner_model.joblib"
-
-_MODEL = None
-_MODEL_FEATURES = None
+_MODEL_DIR = _GAME_PRED_DIR / "models"
+_MODEL_BUNDLE = None
 _CONFERENCE_MAPPING = None
 _TEAM_FEATURE_CACHE = {}
 _TEAM_SNAPSHOT_CACHE = {}
@@ -671,24 +671,23 @@ def build_matchup_feature_row(
     return pd.DataFrame([feature_row]).replace([np.inf, -np.inf], np.nan).fillna(-100)
 
 
-def _load_model():
-    global _MODEL, _MODEL_FEATURES
-    if _MODEL is None:
-        _MODEL = joblib.load(_MODEL_PATH)
-        _MODEL_FEATURES = list(_MODEL.feature_name_)
-    return _MODEL, _MODEL_FEATURES
+def _get_model_bundle():
+    global _MODEL_BUNDLE
+    if _MODEL_BUNDLE is None:
+        _MODEL_BUNDLE = ensemble.load_models(_MODEL_DIR)
+    return _MODEL_BUNDLE
 
 
 def _get_conference_mapping():
     global _CONFERENCE_MAPPING
     if _CONFERENCE_MAPPING is None:
-        _CONFERENCE_MAPPING = load_conference_mapping()
+        _CONFERENCE_MAPPING = dp.load_conference_mapping()
     return _CONFERENCE_MAPPING
 
 
 def _get_team_feature_data_for_season(season: int) -> pd.DataFrame:
     if season not in _TEAM_FEATURE_CACHE:
-        _TEAM_FEATURE_CACHE[season] = build_team_feature_rows(season, _get_conference_mapping())
+        _TEAM_FEATURE_CACHE[season] = dp.build_team_feature_rows(season, _get_conference_mapping())
     return _TEAM_FEATURE_CACHE[season]
 
 
@@ -735,8 +734,7 @@ def _resolve_season(team_a: Team, team_b: Team) -> int:
 
 
 def _predict_win_prob(team_a: Team, team_b: Team) -> float:
-    # Modified logic for neutral court - average prediction and reversed prediction
-    model, feature_names = _load_model()
+    model_bundle = _get_model_bundle()
     season = _resolve_season(team_a, team_b)
     left_snapshot = _get_latest_team_snapshot(team_a.name, season)
     right_snapshot = _get_latest_team_snapshot(team_b.name, season)
@@ -747,33 +745,15 @@ def _predict_win_prob(team_a: Team, team_b: Team) -> float:
     season_type = 3
     team_home_away = 2
 
-    # Normal direction
-    processed_data = build_matchup_feature_row(
+    processed_data = dp.build_matchup_feature_row(
         left_snapshot,
         right_snapshot,
         season=season,
         season_type=season_type,
         team_home_away=team_home_away,
     )
-    ordered_data = align_features_for_model(processed_data, feature_names)
-    proba = model.predict_proba(ordered_data)[0]
-    proba_a = float(proba[1])
-
-    # Reverse direction (swap home/away roles)
-    processed_data_inv = build_matchup_feature_row(
-        right_snapshot,
-        left_snapshot,
-        season=season,
-        season_type=season_type,
-        team_home_away=team_home_away,
-    )
-    ordered_data_inv = align_features_for_model(processed_data_inv, feature_names)
-    proba_inv = model.predict_proba(ordered_data_inv)[0]
-    proba_b = float(proba_inv[1])
-
-    # Because in the reverse, we get probability of team_b beating team_a, so we want probability of team_a: 1 - proba_b
-    p_avg = (proba_a + (1.0 - proba_b)) / 2.0
-    return p_avg
+    win_prob, _ = ensemble.predict_ensemble(processed_data, model_bundle)
+    return win_prob
 
 # -----------------------------
 # BUILD BRACKET

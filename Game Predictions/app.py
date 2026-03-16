@@ -12,6 +12,8 @@ from PyQt5.QtNetwork import QNetworkRequest, QNetworkAccessManager, QNetworkRepl
 import joblib
 import pandas as pd
 import numpy as np
+import data_processing as dp
+import model_ensemble as ensemble
 info = pd.read_csv('Data/game_results/games_2026.csv')
 info['team_location_key'] = info['team_location'].astype(str).str.strip().str.lower()
 
@@ -1082,9 +1084,8 @@ class NCAATeamMatchupApp(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        # Prediction model
-        self.lgbm_model = joblib.load('Game Predictions/models/lgbm_winner_model.joblib')
-        self.winner_feature_names = list(self.lgbm_model.feature_name_)
+        # Prediction models (ensemble)
+        self.model_bundle = ensemble.load_models()
         # App settings
         self.setWindowTitle("NCAA Team Matchup")
         self.setMinimumSize(1024, 768)
@@ -1096,7 +1097,7 @@ class NCAATeamMatchupApp(QMainWindow):
         self.left_year = self.selected_season
         self.right_year = self.selected_season
         self.selected_round = "Regular Season"
-        self.conference_mapping = load_conference_mapping()
+        self.conference_mapping = dp.load_conference_mapping()
         self.team_feature_cache = {}
         
         self.left_team_stats = TeamStats()
@@ -1343,7 +1344,7 @@ class NCAATeamMatchupApp(QMainWindow):
 
     def get_team_feature_data_for_season(self, season: int) -> pd.DataFrame:
         if season not in self.team_feature_cache:
-            self.team_feature_cache[season] = build_team_feature_rows(season, self.conference_mapping)
+            self.team_feature_cache[season] = dp.build_team_feature_rows(season, self.conference_mapping)
         return self.team_feature_cache[season]
 
     def get_latest_team_snapshot(self, team_name: str, season: int) -> pd.Series | None:
@@ -1539,53 +1540,20 @@ class NCAATeamMatchupApp(QMainWindow):
                 return
 
             left_team_home_away = 2 if season_type == 3 else 1
-            right_team_home_away = 2 if season_type == 3 else 0
 
-            processed_data = build_matchup_feature_row(
+            processed_data = dp.build_matchup_feature_row(
                 left_snapshot,
                 right_snapshot,
                 season=season_int,
                 season_type=season_type,
                 team_home_away=left_team_home_away,
             )
-            inverted_data = build_matchup_feature_row(
-                right_snapshot,
-                left_snapshot,
-                season=season_int,
-                season_type=season_type,
-                team_home_away=right_team_home_away,
-            )
 
-            threshold = 0.50
-
-            # Determine prediction method: use upset model if season_type == 3, else use regular model
-            if season_type == 3:
-                # NCAA Tournament, use upset prediction (average normal and inverted orders)
-                upset_ordered_data = align_features_for_model(processed_data, self.winner_feature_names)
-                inverted_upset_ordered_data = align_features_for_model(inverted_data, self.winner_feature_names)
-                
-                upset_prob = self.lgbm_model.predict_proba(upset_ordered_data)[0]
-                upset_prob_inv = self.lgbm_model.predict_proba(inverted_upset_ordered_data)[0]
-                print("Upset probs", upset_prob, "| Inverted:", upset_prob_inv)
-
-                # Average probabilities between the two orders
-                avg_team1_prob = (upset_prob[1] + (1 - upset_prob_inv[1])) / 2
-                avg_team2_prob = (upset_prob[0] + (1 - upset_prob_inv[0])) / 2
-
-                team1_win_prob = round(avg_team1_prob * 100, 2)
-                team2_win_prob = round(avg_team2_prob * 100, 2)
-                team1_wins = avg_team1_prob > threshold
-            else:
-                # Non-Tournament, use regular prediction
-                ordered_data = align_features_for_model(processed_data, self.winner_feature_names)
-
-                proba_1 = self.lgbm_model.predict_proba(ordered_data)[0]
-
-                print(proba_1)
-                team1_proba_dir1 = proba_1[1]
-                team1_wins = team1_proba_dir1 > threshold
-                team1_win_prob = round(team1_proba_dir1 * 100, 2)
-                team2_win_prob = round((1 - team1_proba_dir1) * 100, 2)
+            winner_prob, spread_pred = ensemble.predict_ensemble(processed_data, self.model_bundle)
+            team1_wins = winner_prob > 0.50
+            team1_win_prob = round(winner_prob * 100, 2)
+            team2_win_prob = round((1 - winner_prob) * 100, 2)
+            spread_range = ensemble.format_spread_range(spread_pred)
 
             # Update UI to highlight winner and show probabilities
             self.left_team_widget.set_win_gradient(team1_wins, team1_win_prob)
@@ -1597,6 +1565,7 @@ class NCAATeamMatchupApp(QMainWindow):
             winner_prob = team1_win_prob if team1_wins else team2_win_prob
 
             prediction_text = f"Predicted Winner: {winner} ({winner_prob:.1f}% chance)\n\n"
+            prediction_text += f"Projected Spread: {spread_range}\n\n"
             prediction_text += f"{self.left_team}: {team1_win_prob:.1f}% chance\n"
             prediction_text += f"{self.right_team}: {team2_win_prob:.1f}% chance\n\n"
 
