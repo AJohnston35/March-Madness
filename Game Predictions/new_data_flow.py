@@ -22,31 +22,22 @@ def main() -> None:
         print('No games_*.csv files found to process.')
         return
 
+    elo_ratings = {}
+    elo_last_season = {}
+
     # Load and concatenate all seasons at once
     dfs = []
     for games_file in games_files:
         year = get_year_from_games_filename(games_file)
+        print(f'Processing {games_file}...')
         df = pd.read_csv(games_file)
         df['season'] = int(year)
+        df = process_all_games(df, conference_mapping, elo_ratings, elo_last_season)
         dfs.append(df)
     all_games = pd.concat(dfs, ignore_index=True)
 
-    # Process all seasons in one pass (EWM across time for averages; season-only for wins/sos/luck)
-    elo_ratings = {}
-    elo_last_season = {}
-    dataset = process_all_games(all_games, conference_mapping, elo_ratings, elo_last_season)
-
-    # Write per-season cleaned files and full dataset
-    cleaned_dir = DATA_DIR / 'cleaned_data'
-    cleaned_dir.mkdir(parents=True, exist_ok=True)
-    for season in sorted(dataset['season'].unique()):
-        season_df = dataset[dataset['season'] == season]
-        yearly_output = cleaned_dir / f'games_{season}_final.csv'
-        season_df.to_csv(yearly_output, index=False)
-        print(f'Wrote {yearly_output.name} ({len(season_df)} rows)')
-
-    dataset.to_csv(PROJECT_ROOT / 'Game Predictions' / 'dataset.csv', index=False)
-    print(f'Wrote dataset.csv ({len(dataset)} rows)')
+    all_games.to_csv(PROJECT_ROOT / 'Game Predictions' / 'dataset.csv', index=False)
+    print(f'Wrote dataset.csv ({len(all_games)} rows)')
 
 
 if __name__ == '__main__':

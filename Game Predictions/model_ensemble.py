@@ -7,15 +7,14 @@ import joblib
 import data_processing as dp
 
 CLASS_WEIGHTS = {
-    "lgbm": 0.50,
-    "xgb": 0.20,
-    "logreg": 0.30,
+    "lgbm": 0.35,
+    "xgb": 0.25,
+    "logreg": 0.40,
 }
 
 REG_WEIGHTS = {
-    "lgbm": 0.15,
-    "xgb": 0.10,
-    "logreg": 0.75,
+    "lgbm": 0.05,
+    "logreg": 0.95,
 }
 
 _MODEL_CACHE = None
@@ -123,7 +122,6 @@ def predict_regression_ensemble(
 
     preds = {
         "lgbm": np.asarray(spread_models["lgbm"].predict(X), dtype=float),
-        "xgb": np.asarray(spread_models["xgb"].predict(X), dtype=float),
         "logreg": np.asarray(spread_models["logreg"].predict(X), dtype=float),
     }
     return float(_weighted_sum(preds, weights)[0])

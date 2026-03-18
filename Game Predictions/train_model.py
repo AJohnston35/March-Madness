@@ -38,26 +38,34 @@ df = load_and_prepare_dataset(
 )
 
 # %%
-print("Number of nulls per column in df (ordered by highest nulls first):")
-null_counts = df.isnull().sum().sort_values(ascending=False)
-for col, count in null_counts.items():
-    print(f"{col}: {count}")
 
-df.loc[df['team_home_away'] == 1, 'margin_estimate'] = df['margin_estimate'] + 6.30
-df.loc[df['team_home_away'] == 0, 'margin_estimate'] = df['margin_estimate'] - 6.30
+df.loc[df['team_home_away'] == 1, 'margin_estimate'] = df['margin_estimate'] + 7.00
+df.loc[df['team_home_away'] == 0, 'margin_estimate'] = df['margin_estimate'] - 7.00
+df.loc[df['team_home_away'] == 1, 'point_differential_avg_diff'] = df['margin_estimate'] + 6.90
+df.loc[df['team_home_away'] == 0, 'point_differential_avg_diff'] = df['margin_estimate'] - 6.90
 
 # %% [markdown]
 # ## 3. Train/Test Split And Shared Config
 
 # %%
 # Split train/test based on date
-split_date = '2024-11-01'
-val_split_date = '2025-11-01'
+split_date = '2023-11-01'
+val_split_date = '2024-11-01'
+
+
+def games_played_weight(games_played, k=10):
+    games_played = pd.to_numeric(games_played, errors='coerce').fillna(0)
+    return np.minimum(1.0, games_played / float(k))
+
+
 df['target'] = df['team_winner']
 df.drop(columns=['team_winner'], inplace=True)
 train_df = df[df['game_date'] <= split_date].copy()
 val_df = df[(df['game_date'] > split_date) & (df['game_date'] <= val_split_date)].copy()
 test_df = df[df['game_date'] > val_split_date].copy()
+test_game_dates = pd.to_datetime(test_df['game_date']).copy()
+train_sample_weights = games_played_weight(train_df['games_played'])
+val_sample_weights = games_played_weight(val_df['games_played'])
 train_df.drop(columns=['game_date','game_id'], inplace=True)
 val_df.drop(columns=['game_date','game_id'], inplace=True)
 test_df.drop(columns=['game_date','game_id'], inplace=True)
@@ -80,8 +88,6 @@ y_val_winner = val_df['target'].astype(int)
 
 X_test_winner = test_df.drop(columns=['target','spread'])
 y_test_winner = test_df['target'].astype(int)
-
-print(X_train_winner.columns.to_list())
 
 # Improved model parameters for better generalization and handling nonlinearity
 winner_params = dict(
@@ -111,7 +117,9 @@ print("\nTraining winner prediction model (improved hyperparameters)...")
 model_winner.fit(
     X_train_winner,
     y_train_winner,
+    sample_weight=train_sample_weights,
     eval_set=[(X_train_winner, y_train_winner), (X_val_winner, y_val_winner)],
+    eval_sample_weight=[train_sample_weights, val_sample_weights],
     eval_names=['Train', 'Test'],
     eval_metric="auc",
     callbacks=[lgb.early_stopping(stopping_rounds=200, first_metric_only=True)]
@@ -138,7 +146,9 @@ print("\nTraining XGBoost winner prediction model...")
 model_xgb_winner.fit(
     X_train_winner,
     y_train_winner,
+    sample_weight=train_sample_weights,
     eval_set=[(X_train_winner, y_train_winner), (X_val_winner, y_val_winner)],
+    sample_weight_eval_set=[train_sample_weights, val_sample_weights],
     verbose=False
 )
 
@@ -152,15 +162,15 @@ model_logreg_winner = LogisticRegression(
 )
 
 print("\nTraining LogisticRegression winner prediction model...")
-model_logreg_winner.fit(X_train_winner_scaled, y_train_winner)
+model_logreg_winner.fit(X_train_winner_scaled, y_train_winner, sample_weight=train_sample_weights)
 
 # %% [markdown]
 # ## 5. Save Models
 
 # %%
-joblib.dump(model_winner, 'models/lgbm_winner_model.joblib')
+'''joblib.dump(model_winner, 'models/lgbm_winner_model.joblib')
 joblib.dump(model_xgb_winner, 'models/xgb_winner_model.joblib')
-joblib.dump(model_logreg_winner, 'models/logreg_winner_model.joblib')
+joblib.dump(model_logreg_winner, 'models/logreg_winner_model.joblib')'''
 
 # %% [markdown]
 # ## 6. Define Evaluation Helper
@@ -252,6 +262,50 @@ def print_classification_metrics(y_true, y_pred_bin, y_pred_proba, model_name):
     print(cm)
     print("="*36)
 
+
+def plot_monthly_roc_auc(y_true, y_pred_proba, game_dates, model_name):
+    monthly_df = pd.DataFrame({
+        'game_date': pd.to_datetime(game_dates),
+        'y_true': np.asarray(y_true),
+        'y_pred_proba': np.asarray(y_pred_proba),
+    }).dropna(subset=['game_date'])
+
+    monthly_df['month'] = monthly_df['game_date'].dt.to_period('M').dt.to_timestamp()
+
+    monthly_rows = []
+    skipped_months = []
+    for month, group in monthly_df.groupby('month'):
+        if group['y_true'].nunique() < 2:
+            skipped_months.append(month.strftime('%Y-%m'))
+            continue
+        monthly_rows.append({
+            'Month': month,
+            'ROC AUC': roc_auc_score(group['y_true'], group['y_pred_proba']),
+            'Games': len(group),
+        })
+
+    if not monthly_rows:
+        print(f"No monthly ROC AUC plot generated for {model_name}; each month needs both classes present.")
+        return pd.DataFrame()
+
+    monthly_auc_df = pd.DataFrame(monthly_rows).sort_values('Month')
+
+    plt.figure(figsize=(12, 6))
+    sns.lineplot(data=monthly_auc_df, x='Month', y='ROC AUC', marker='o', linewidth=2)
+    plt.ylim(0.0, 1.0)
+    plt.xlabel("Month")
+    plt.ylabel("ROC AUC")
+    plt.title(f"Monthly ROC AUC - {model_name}")
+    plt.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+    if skipped_months:
+        print(f"Skipped months for {model_name} ROC AUC (single class only): {', '.join(skipped_months)}")
+
+    return monthly_auc_df
+
 # %% [markdown]
 # ## 7. Evaluate Models
 
@@ -272,14 +326,17 @@ print("\n== Individual Model Results (Winner) ==")
 # LGBM
 lgbm_pred_bin = (lgbm_winner_proba > 0.5).astype(int)
 print_classification_metrics(y_test_winner, lgbm_pred_bin, lgbm_winner_proba, "LGBMClassifier")
+plot_monthly_roc_auc(y_test_winner, lgbm_winner_proba, test_game_dates, "LGBMClassifier")
 
 # XGB
 xgb_pred_bin = (xgb_winner_proba > 0.5).astype(int)
 print_classification_metrics(y_test_winner, xgb_pred_bin, xgb_winner_proba, "XGBClassifier")
+plot_monthly_roc_auc(y_test_winner, xgb_winner_proba, test_game_dates, "XGBClassifier")
 
 # Logistic Regression
 logreg_pred_bin = (logreg_winner_proba > 0.5).astype(int)
 print_classification_metrics(y_test_winner, logreg_pred_bin, logreg_winner_proba, "LogisticRegression")
+plot_monthly_roc_auc(y_test_winner, logreg_winner_proba, test_game_dates, "LogisticRegression")
 
 # --- Evaluate ensemble model with best ROC AUC and MCC by sliding weight combinations ---
 
@@ -338,6 +395,12 @@ print(f"Best Ensemble MCC:     {best_winner_mcc:.4f}")
 # Show metrics for the optimal ensemble threshold
 ensemble_pred_bin = (winner_ensemble_proba > best_thresh_winner).astype(int)
 print_classification_metrics(y_test_winner, ensemble_pred_bin, winner_ensemble_proba, f"Ensemble (threshold={best_thresh_winner:.2f}, w={best_winner_weights})")
+plot_monthly_roc_auc(
+    y_test_winner,
+    winner_ensemble_proba,
+    test_game_dates,
+    f"Winner Ensemble (threshold={best_thresh_winner:.2f})",
+)
 
 # %% [markdown]
 # ## 8. Define Feature Importance Helper
@@ -381,7 +444,7 @@ print(X_train_spread.columns.to_list())
 # Improved model parameters for better generalization and handling nonlinearity (regression)
 spread_params = dict(
     objective="regression",
-    metric="rmse",
+    metric="mae",
     boosting_type="gbdt",
     learning_rate=0.04,           # Slower learning rate for more robust learning
     n_estimators=2000,             # More trees to compensate for lower learning rate
@@ -406,7 +469,9 @@ model_spread = LGBMRegressor(**spread_params)
 print("\nTraining spread prediction model (improved hyperparameters)...")
 model_spread.fit(
     X_train_spread, y_train_spread,
+    sample_weight=train_sample_weights,
     eval_set=[(X_train_spread, y_train_spread), (X_val_spread, y_val_spread)],
+    eval_sample_weight=[train_sample_weights, val_sample_weights],
     eval_names=['Train', 'Test'],
     eval_metric='rmse',
     callbacks=[lgb.early_stopping(stopping_rounds=200, first_metric_only=True)]
@@ -414,7 +479,7 @@ model_spread.fit(
 
 # XGBoost spread model (regression)
 xgb_spread_params = dict(
-    objective="reg:squarederror",
+    objective="reg:absoluteerror",
     learning_rate=0.05,
     n_estimators=2000,
     max_depth=6,
@@ -432,7 +497,9 @@ model_xgb_spread = XGBRegressor(**xgb_spread_params)
 print("\nTraining XGBoost spread prediction model...")
 model_xgb_spread.fit(
     X_train_spread, y_train_spread,
+    sample_weight=train_sample_weights,
     eval_set=[(X_train_spread, y_train_spread), (X_val_spread, y_val_spread)],
+    sample_weight_eval_set=[train_sample_weights, val_sample_weights],
     verbose=False
 )
 
@@ -447,7 +514,7 @@ model_logreg_spread = LogisticRegression(
 print("\nTraining LogisticRegression spread model (predicting win/loss for thresholding)...")
 # Use spread as a binary (win/lose) training target
 y_train_winner_logreg = y_train_winner
-model_logreg_spread.fit(X_train_spread_scaled, y_train_winner_logreg)
+model_logreg_spread.fit(X_train_spread_scaled, y_train_winner_logreg, sample_weight=train_sample_weights)
 
 # %%
 
@@ -653,6 +720,6 @@ print_corrcoef("Winner Ensemble", winner_ensemble_proba_scaled, "Spread Ensemble
 plot_feature_importance(model_spread, X_train_spread, "Spread Prediction Model")
 
 # %%
-joblib.dump(model_spread, 'models/lgbm_spread_model.joblib')
+'''joblib.dump(model_spread, 'models/lgbm_spread_model.joblib')
 joblib.dump(model_xgb_spread, 'models/xgb_spread_model.joblib')
-joblib.dump(model_logreg_spread, 'models/logreg_spread_model.joblib')
+joblib.dump(model_logreg_spread, 'models/logreg_spread_model.joblib')'''
