@@ -14,6 +14,8 @@ import pandas as pd
 import numpy as np
 import data_processing as dp
 import model_ensemble as ensemble
+import team_stats_cache as stats_cache
+import cached_matchup
 info = pd.read_csv('Data/game_results/games_2026.csv')
 info['team_location_key'] = info['team_location'].astype(str).str.strip().str.lower()
 
@@ -1344,7 +1346,7 @@ class NCAATeamMatchupApp(QMainWindow):
 
     def get_team_feature_data_for_season(self, season: int) -> pd.DataFrame:
         if season not in self.team_feature_cache:
-            self.team_feature_cache[season] = dp.build_team_feature_rows(season, self.conference_mapping)
+            self.team_feature_cache[season] = stats_cache.load_team_stats_cache(season)
         return self.team_feature_cache[season]
 
     def get_latest_team_snapshot(self, team_name: str, season: int) -> pd.Series | None:
@@ -1352,7 +1354,25 @@ class NCAATeamMatchupApp(QMainWindow):
         if season_features.empty:
             return None
 
-        team_rows = season_features[season_features['team_name'] == team_name].copy()
+        lookup_key = _team_key(team_name)
+        team_rows = pd.DataFrame()
+
+        if 'team_location_key' in season_features.columns:
+            team_rows = season_features[season_features['team_location_key'] == lookup_key].copy()
+
+        if team_rows.empty and 'team_location' in season_features.columns:
+            team_rows = season_features[
+                season_features['team_location'].astype(str).str.strip().str.lower() == lookup_key
+            ].copy()
+
+        if team_rows.empty:
+            try:
+                team_id = int(team_name)
+            except (TypeError, ValueError):
+                team_id = None
+            if team_id is not None and 'team_id' in season_features.columns:
+                team_rows = season_features[season_features['team_id'] == team_id].copy()
+
         if team_rows.empty:
             return None
 
@@ -1528,28 +1548,23 @@ class NCAATeamMatchupApp(QMainWindow):
             season_int = int(self.selected_season)
             season_type = 3 if self.selected_round == 'NCAA Tournament' else 2
 
-            left_snapshot = self.get_latest_team_snapshot(self.left_team, season_int)
-            right_snapshot = self.get_latest_team_snapshot(self.right_team, season_int)
-
-            if left_snapshot is None or right_snapshot is None:
-                QMessageBox.warning(
-                    self,
-                    "Missing Data",
-                    f"Could not find enough historical data for {self.left_team} or {self.right_team} in {self.selected_season}.",
-                )
-                return
-
             left_team_home_away = 2 if season_type == 3 else 1
 
-            processed_data = dp.build_matchup_feature_row(
-                left_snapshot,
-                right_snapshot,
+            processed_data = cached_matchup.build_prediction_feature_row(
+                self.left_team,
+                self.right_team,
                 season=season_int,
                 season_type=season_type,
-                team_home_away=left_team_home_away,
+                team_a_home_away=left_team_home_away,
             )
 
-            winner_prob, spread_pred = ensemble.predict_ensemble(processed_data, self.model_bundle)
+            # Add the arbitrary point differential of 6.90 to the processed data
+            processed_data.loc[processed_data['team_home_away'] == 1, 'margin_estimate'] = processed_data['margin_estimate'] + 7.00
+            processed_data.loc[processed_data['team_home_away'] == 0, 'margin_estimate'] = processed_data['margin_estimate'] - 7.00
+            processed_data.loc[processed_data['team_home_away'] == 1, 'point_differential_avg_diff'] = processed_data['point_differential_avg_diff'] + 6.90
+            processed_data.loc[processed_data['team_home_away'] == 0, 'point_differential_avg_diff'] = processed_data['point_differential_avg_diff'] - 6.90
+
+            winner_prob, spread_pred = ensemble.predict_meta_ensemble(processed_data, self.model_bundle)
             team1_wins = winner_prob > 0.50
             team1_win_prob = round(winner_prob * 100, 2)
             team2_win_prob = round((1 - winner_prob) * 100, 2)

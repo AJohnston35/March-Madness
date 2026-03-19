@@ -1,674 +1,30 @@
-import random
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
-
 import warnings
-warnings.filterwarnings("ignore")
 
-import joblib
 import numpy as np
-import pandas as pd
-import data_processing as dp
+
+import cached_matchup
 import model_ensemble as ensemble
 
-# -----------------------------
-# TEAM
-# -----------------------------
+warnings.filterwarnings("ignore")
+
 
 @dataclass
 class Team:
     name: str
     seed: int
     season: int | None = None
+    region: str | None = None
 
-
-# -----------------------------
-# GAME NODE
-# -----------------------------
-
-class Game:
-
-    def __init__(self, team_a=None, team_b=None,
-                 winner_from_a=None, winner_from_b=None):
-
-        self.team_a = team_a
-        self.team_b = team_b
-
-        self.winner_from_a = winner_from_a
-        self.winner_from_b = winner_from_b
-
-        self.winner = None
-
-
-# -----------------------------
-# RESOLVE PARTICIPANTS
-# -----------------------------
-
-def resolve(team, source_game):
-
-    if team is not None:
-        return team
-
-    if source_game is not None:
-        return source_game.winner
-
-    return None
-
-
-# -----------------------------
-# PLAY GAME
-# -----------------------------
-
-def play_game(game, prob_lookup=None):
-
-    team_a = resolve(game.team_a, game.winner_from_a)
-    team_b = resolve(game.team_b, game.winner_from_b)
-
-    if team_a is None:
-        game.winner = team_b
-        return
-
-    if team_b is None:
-        game.winner = team_a
-        return
-
-    p = 0.5
-
-    if prob_lookup:
-        p = prob_lookup(team_a, team_b)
-    else:
-        p = _predict_win_prob(team_a, team_b)
-
-    game.winner = team_a if random.random() < p else team_b
-
-
-# -----------------------------
-# MATCHUP PREDICTION (MODEL)
-# -----------------------------
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _GAME_PRED_DIR = Path(__file__).resolve().parent
 _DATA_DIR = _PROJECT_ROOT / "Data"
 _MODEL_DIR = _GAME_PRED_DIR / "models"
 _MODEL_BUNDLE = None
-_CONFERENCE_MAPPING = None
-_TEAM_FEATURE_CACHE = {}
-_TEAM_SNAPSHOT_CACHE = {}
-
-REQUIRED_BASE_COLUMNS = [
-    'team_score',
-    'opponent_team_score',
-    'field_goals_made',
-    'field_goals_attempted',
-    'three_point_field_goals_made',
-    'three_point_field_goals_attempted',
-    'free_throws_made',
-    'free_throws_attempted',
-    'offensive_rebounds',
-    'defensive_rebounds',
-    'assists',
-    'steals',
-    'blocks',
-    'team_turnovers',
-    'turnovers',
-    'fast_break_points',
-    'turnover_points',
-    'largest_lead',
-    'field_goal_pct',
-    'three_point_field_goal_pct',
-    'free_throw_pct',
-    'flagrant_fouls',
-    'fouls',
-    'lead_changes',
-    'lead_percentage',
-    'points_in_paint',
-    'technical_fouls',
-    'total_rebounds',
-    'total_technical_fouls',
-    'total_turnovers',
-]
-
-AVG_BASE_COLS = [
-    'team_score',
-    'opponent_team_score',
-    'poss',
-    'poss_opponent',
-    'off_eff',
-    'def_eff',
-    'net_eff',
-    'efg',
-    'efg_allowed',
-    'tov',
-    'stl_rate',
-    'orb',
-    'drb',
-    'ftr',
-    'foul_rate',
-    'ppp',
-    'two_pct',
-    'two_pct_opponent',
-    'point_differential',
-    'assist_rate',
-    'assist_to_fg',
-    'block_rate',
-    'lead_vs_outcome',
-    'fast_break_pct',
-    'points_off_turnover_pct',
-    'three_pct',
-    'three_pct_opponent',
-    'three_attempt_rate',
-    'allowed_three_attempt_rate',
-]
-
-
-def align_features_for_model(df: pd.DataFrame, feature_names) -> pd.DataFrame:
-    data = df.copy()
-    for col in data.columns:
-        if pd.api.types.is_bool_dtype(data[col]):
-            data[col] = data[col].astype(int)
-    data = data.replace([np.inf, -np.inf], np.nan).fillna(0)
-    return data.reindex(columns=list(feature_names), fill_value=0)
-
-
-def _safe_divide(num, den):
-    if isinstance(den, (int, float, np.floating)):
-        if den == 0 or pd.isna(den):
-            return np.nan
-        return num / den
-    den = den.replace(0, np.nan)
-    return num / den
-
-
-def load_conference_mapping() -> pd.DataFrame:
-    mapping_path = _DATA_DIR / 'kenpom' / 'REF _ NCAAM Conference and ESPN Team Name Mapping.csv'
-    conference_mapping = pd.read_csv(
-        mapping_path,
-        usecols=['Conference', 'Mapped ESPN Team Name']
-    ).dropna()
-    conference_mapping['Mapped ESPN Team Name'] = conference_mapping['Mapped ESPN Team Name'].replace(
-        {'Hawaii': "Hawai'i", 'St. Francis (PA)': 'Saint Francis', 'San Jose State': 'San JosÃ© State'}
-    )
-    conference_mapping['team_location_key'] = (
-        conference_mapping['Mapped ESPN Team Name'].astype(str).str.strip().str.lower()
-    )
-    conference_mapping = conference_mapping.drop_duplicates(subset=['team_location_key'])
-    conference_mapping = conference_mapping.rename(columns={'Conference': 'short_conference_name'})
-    return conference_mapping[['team_location_key', 'short_conference_name']]
-
-
-def build_team_feature_rows(season: int, conference_mapping: pd.DataFrame) -> pd.DataFrame:
-    games_path = _DATA_DIR / 'game_results' / f'games_{season}.csv'
-    if not games_path.exists():
-        return pd.DataFrame()
-
-    df = pd.read_csv(games_path)
-    if df.empty:
-        return df
-
-    for col in REQUIRED_BASE_COLUMNS:
-        if col not in df.columns:
-            df[col] = 0
-
-    df['team_location'] = df['team_location'].replace(
-        {'Hawaii': "Hawai'i", 'St. Francis (PA)': 'Saint Francis', 'San JosÃƒÂ© St': 'San Jose State'}
-    )
-    df['team_location_key'] = df['team_location'].astype(str).str.strip().str.lower()
-    df = df.merge(conference_mapping, on='team_location_key', how='left')
-    df.drop(columns='team_location_key', inplace=True)
-    df = df.dropna(subset=['short_conference_name'])
-
-    df = df.drop(columns=[c for c in df.columns if c.startswith('opponent_') and c != 'opponent_team_score'])
-    df['team_name'] = df['team_location']
-
-    drop_cols = [
-        'game_date_time', 'team_uid', 'team_location', 'team_slug', 'team_abbreviation',
-        'team_display_name', 'team_short_display_name', 'team_color', 'team_alternate_color', 'team_logo'
-    ]
-    df.drop(columns=drop_cols, inplace=True, errors='ignore')
-
-    df_merged = df.merge(df, on=['game_id', 'season', 'season_type', 'game_date'], suffixes=(None, '_opponent'))
-    df_merged = df_merged[df_merged['team_id'] != df_merged['team_id_opponent']]
-
-    df_merged['poss'] = (
-        df_merged['field_goals_attempted'] - df_merged['offensive_rebounds'] + df_merged['team_turnovers']
-        + (0.475 * df_merged['free_throws_attempted'])
-    )
-    df_merged['poss_opponent'] = (
-        df_merged['field_goals_attempted_opponent'] - df_merged['offensive_rebounds_opponent']
-        + df_merged['team_turnovers_opponent'] + (0.475 * df_merged['free_throws_attempted_opponent'])
-    )
-
-    df_merged['off_eff'] = _safe_divide(df_merged['team_score'], df_merged['poss']) * 100
-    df_merged['def_eff'] = _safe_divide(df_merged['team_score_opponent'], df_merged['poss_opponent']) * 100
-    df_merged['net_eff'] = df_merged['off_eff'] - df_merged['def_eff']
-
-    # League-wide averages up to the prior day (per season)
-    df_merged = df_merged.sort_values(['season', 'game_date', 'game_id'])
-    league_daily = (
-        df_merged.groupby(['season', 'game_date'], as_index=False)
-        .agg(
-            league_off_eff=('off_eff', 'mean'),
-            league_def_eff=('def_eff', 'mean')
-        )
-    )
-    league_daily[['league_avg_off_eff', 'league_avg_def_eff']] = (
-        league_daily.groupby('season')[['league_off_eff', 'league_def_eff']]
-        .transform(lambda s: s.shift(1).expanding().mean())
-    )
-
-    df_merged['efg'] = _safe_divide(
-        (df_merged['field_goals_made'] + (0.5 * df_merged['three_point_field_goals_made'])),
-        df_merged['field_goals_attempted'],
-    )
-    df_merged['efg_allowed'] = _safe_divide(
-        (df_merged['field_goals_made_opponent'] + (0.5 * df_merged['three_point_field_goals_made_opponent'])),
-        df_merged['field_goals_attempted_opponent'],
-    )
-    df_merged['tov'] = _safe_divide(df_merged['team_turnovers'], df_merged['poss'])
-    df_merged['stl_rate'] = _safe_divide(df_merged['steals'], df_merged['poss_opponent'])
-    df_merged['orb'] = _safe_divide(
-        df_merged['offensive_rebounds'],
-        (df_merged['offensive_rebounds'] + df_merged['defensive_rebounds_opponent'])
-    )
-    df_merged['drb'] = _safe_divide(
-        df_merged['defensive_rebounds'],
-        (df_merged['defensive_rebounds'] + df_merged['offensive_rebounds_opponent'])
-    )
-    df_merged['ftr'] = _safe_divide(df_merged['free_throws_attempted'], df_merged['field_goals_attempted'])
-    df_merged['ppp'] = _safe_divide(df_merged['team_score'], df_merged['poss'])
-
-    df_merged['two_pm'] = df_merged['field_goals_made'] - df_merged['three_point_field_goals_made']
-    df_merged['two_pa'] = df_merged['field_goals_attempted'] - df_merged['three_point_field_goals_attempted']
-    df_merged['two_pct'] = _safe_divide(df_merged['two_pm'], df_merged['two_pa'])
-
-    df_merged['three_pct'] = _safe_divide(
-        df_merged['three_point_field_goals_made'],
-        df_merged['three_point_field_goals_attempted']
-    )
-    df_merged['three_pct_opponent'] = _safe_divide(
-        df_merged['three_point_field_goals_made_opponent'],
-        df_merged['three_point_field_goals_attempted_opponent']
-    )
-    df_merged['three_attempt_rate'] = _safe_divide(
-        df_merged['three_point_field_goals_attempted'],
-        df_merged['field_goals_attempted']
-    )
-    df_merged['allowed_three_attempt_rate'] = _safe_divide(
-        df_merged['three_point_field_goals_attempted_opponent'],
-        df_merged['field_goals_attempted_opponent']
-    )
-    df_merged['three_variance'] = df_merged.groupby('team_id')['three_pct'].transform(
-        lambda x: x.shift(1).rolling(10).std()
-    )
-    df_merged['score_variance'] = df_merged.groupby('team_id')['team_score'].transform(
-        lambda x: x.shift(1).rolling(10).std()
-    )
-    df_merged['def_score_variance'] = df_merged.groupby('team_id')['opponent_team_score'].transform(
-        lambda x: x.shift(1).rolling(10).std()
-    )
-    df_merged['off_eff_variance'] = df_merged.groupby('team_id')['off_eff'].transform(
-        lambda x: x.shift(1).rolling(10).std()
-    )
-    df_merged['pace_variance'] = df_merged.groupby('team_id')['poss'].transform(
-        lambda x: x.shift(1).rolling(10).std()
-    )
-
-    df_merged['two_pm_opponent'] = (
-        df_merged['field_goals_made_opponent'] - df_merged['three_point_field_goals_made_opponent']
-    )
-    df_merged['two_pa_opponent'] = (
-        df_merged['field_goals_attempted_opponent'] - df_merged['three_point_field_goals_attempted_opponent']
-    )
-    df_merged['two_pct_opponent'] = _safe_divide(df_merged['two_pm_opponent'], df_merged['two_pa_opponent'])
-
-    df_merged['point_differential'] = df_merged['team_score'] - df_merged['team_score_opponent']
-    df_merged['assist_rate'] = _safe_divide(df_merged['assists'], df_merged['poss'])
-    df_merged['assist_to_fg'] = _safe_divide(df_merged['assists'], df_merged['field_goals_made'])
-    df_merged['block_rate'] = _safe_divide(df_merged['blocks'], df_merged['poss_opponent'])
-    df_merged['lead_vs_outcome'] = df_merged['largest_lead'] - df_merged['point_differential']
-    df_merged['fast_break_pct'] = _safe_divide(df_merged['fast_break_points'], df_merged['team_score'])
-    df_merged['points_off_turnover_pct'] = _safe_divide(df_merged['turnover_points'], df_merged['team_score'])
-    df_merged['foul_rate'] = _safe_divide(
-        df_merged['free_throws_attempted_opponent'],
-        df_merged['field_goals_attempted_opponent']
-    )
-
-    maybe_keep = [
-        'field_goals_made', 'field_goals_attempted', 'three_point_field_goals_made',
-        'three_point_field_goals_attempted', 'free_throws_made', 'free_throws_attempted',
-        'offensive_rebounds', 'defensive_rebounds', 'turnovers', 'field_goal_pct',
-        'three_point_field_goal_pct', 'free_throw_pct', 'assists', 'two_pm', 'two_pa',
-        'two_pm_opponent', 'two_pa_opponent'
-    ]
-    drop_cols_two = [
-        'blocks', 'fast_break_points', 'flagrant_fouls', 'fouls', 'largest_lead', 'lead_changes',
-        'lead_percentage', 'points_in_paint', 'steals', 'team_turnovers', 'technical_fouls',
-        'total_rebounds', 'total_technical_fouls', 'total_turnovers', 'turnover_points'
-    ]
-    drop_opponent_cols = [
-        'team_id_opponent', 'team_home_away_opponent', 'team_score_opponent', 'team_winner_opponent',
-        'assists_opponent', 'blocks_opponent', 'defensive_rebounds_opponent', 'fast_break_points_opponent',
-        'field_goal_pct_opponent', 'field_goals_made_opponent', 'field_goals_attempted_opponent',
-        'flagrant_fouls_opponent', 'fouls_opponent', 'free_throw_pct_opponent', 'free_throws_made_opponent',
-        'free_throws_attempted_opponent', 'largest_lead_opponent', 'lead_changes_opponent',
-        'lead_percentage_opponent', 'offensive_rebounds_opponent', 'points_in_paint_opponent',
-        'steals_opponent', 'team_turnovers_opponent', 'technical_fouls_opponent',
-        'three_point_field_goal_pct_opponent', 'three_point_field_goals_made_opponent',
-        'three_point_field_goals_attempted_opponent', 'total_rebounds_opponent',
-        'total_technical_fouls_opponent', 'total_turnovers_opponent', 'turnover_points_opponent',
-        'turnovers_opponent', 'opponent_team_score_opponent'
-    ]
-
-    df_merged.drop(columns=maybe_keep, inplace=True, errors='ignore')
-    df_merged.drop(columns=drop_cols_two, inplace=True, errors='ignore')
-    df_merged.drop(columns=drop_opponent_cols, inplace=True, errors='ignore')
-
-    df_merged = df_merged.sort_values(by=['game_date', 'game_id'], ascending=True)
-
-    def encode_team_home_away(row):
-        if row['season_type'] in [1, 3]:
-            return 2
-        return 1 if str(row['team_home_away']).strip().lower() == 'home' else 0
-
-    df_merged['team_home_away'] = df_merged.apply(encode_team_home_away, axis=1)
-    df_merged['team_winner'] = df_merged['team_winner'].apply(lambda x: 1 if x is True or x == 1 else 0)
-
-    df_merged['home_off_eff'] = df_merged.groupby('team_id').apply(
-        lambda g: g.loc[g['team_home_away'] == 1, 'off_eff'].shift(1).expanding().mean()
-    ).reset_index(level=0, drop=True)
-    df_merged['home_def_eff'] = df_merged.groupby('team_id').apply(
-        lambda g: g.loc[g['team_home_away'] == 1, 'def_eff'].shift(1).expanding().mean()
-    ).reset_index(level=0, drop=True)
-    df_merged['away_off_eff'] = df_merged.groupby('team_id').apply(
-        lambda g: g.loc[g['team_home_away'] == 0, 'off_eff'].shift(1).expanding().mean()
-    ).reset_index(level=0, drop=True)
-    df_merged['away_def_eff'] = df_merged.groupby('team_id').apply(
-        lambda g: g.loc[g['team_home_away'] == 0, 'def_eff'].shift(1).expanding().mean()
-    ).reset_index(level=0, drop=True)
-
-    df_merged['points_last10'] = df_merged.groupby('team_id')['team_score'].transform(
-        lambda x: x.shift(1).rolling(10, min_periods=1).sum()
-    )
-    df_merged['opp_points_last10'] = df_merged.groupby('team_id')['opponent_team_score'].transform(
-        lambda x: x.shift(1).rolling(10, min_periods=1).sum()
-    )
-    df_merged['poss_last10'] = df_merged.groupby('team_id')['poss'].transform(
-        lambda x: x.shift(1).rolling(10, min_periods=1).sum()
-    )
-    df_merged['poss_opp_last10'] = df_merged.groupby('team_id')['poss_opponent'].transform(
-        lambda x: x.shift(1).rolling(10, min_periods=1).sum()
-    )
-    df_merged['last_10_efficiency'] = (
-        _safe_divide(df_merged['points_last10'], df_merged['poss_last10']) * 100
-        - _safe_divide(df_merged['opp_points_last10'], df_merged['poss_opp_last10']) * 100
-    )
-    df_merged.drop(columns=['points_last10', 'opp_points_last10', 'poss_last10', 'poss_opp_last10'], inplace=True)
-
-    for col in AVG_BASE_COLS:
-        df_merged[f'{col}_avg'] = df_merged.groupby('team_id')[col].transform(lambda x: x.shift(1).expanding().mean())
-        df_merged[f'{col}_rolling_5'] = df_merged.groupby('team_id')[col].transform(lambda x: x.shift(1).rolling(5).mean())
-
-    df_merged['is_early_season'] = df_merged.isna().any(axis=1).astype(int)
-    drop_avg_bases = [c for c in AVG_BASE_COLS if c not in ['team_score', 'opponent_team_score']]
-    df_merged.drop(columns=drop_avg_bases, inplace=True, errors='ignore')
-
-    df_merged = df_merged.merge(
-        league_daily[['season', 'game_date', 'league_avg_off_eff', 'league_avg_def_eff']],
-        on=['season', 'game_date'],
-        how='left'
-    )
-
-    df_merged['conference_strength'] = df_merged.groupby('short_conference_name')['net_eff_avg'].transform(
-        lambda x: x.shift(1).expanding().mean()
-    )
-
-    df_merged['team_winner_shifted'] = df_merged.groupby('team_id')['team_winner'].shift(1)
-    df_merged['wins'] = df_merged.groupby('team_id')['team_winner_shifted'].transform(lambda x: (x == True).cumsum())
-    df_merged['losses'] = df_merged.groupby('team_id')['team_winner_shifted'].transform(lambda x: (x == False).cumsum())
-
-    df_merged['non_conf_win'] = (df_merged['team_winner_shifted'].fillna(False).astype(bool)) & (
-        df_merged['short_conference_name'] != df_merged['short_conference_name_opponent']
-    )
-    df_merged['non_conf_loss'] = ~(df_merged['team_winner_shifted'].fillna(False).astype(bool)) & (
-        df_merged['short_conference_name'] != df_merged['short_conference_name_opponent']
-    )
-    df_merged['non_conf_wins'] = df_merged.groupby('short_conference_name')['non_conf_win'].transform(lambda x: x.cumsum())
-    df_merged['non_conf_losses'] = df_merged.groupby('short_conference_name')['non_conf_loss'].transform(lambda x: x.cumsum())
-
-    df_merged['win_loss_pct'] = _safe_divide(df_merged['wins'], (df_merged['wins'] + df_merged['losses']))
-    df_merged['non_conf_win_loss_pct'] = _safe_divide(
-        df_merged['non_conf_wins'], (df_merged['non_conf_wins'] + df_merged['non_conf_losses'])
-    )
-    df_merged.drop(
-        columns=['wins', 'losses', 'non_conf_win', 'non_conf_loss', 'non_conf_wins', 'non_conf_losses', 'team_winner_shifted'],
-        inplace=True
-    )
-
-    df_merged['conference_nonconf_win_pct'] = df_merged.groupby('short_conference_name')['non_conf_win_loss_pct'].transform(
-        lambda x: x.shift(1).expanding().mean()
-    )
-
-    df_merged['points_for'] = df_merged.groupby('team_id')['team_score'].transform(lambda x: x.shift(1).cumsum())
-    df_merged['points_against'] = df_merged.groupby('team_id')['opponent_team_score'].transform(lambda x: x.shift(1).cumsum())
-    k = 13.91
-    df_merged['pythagorean_win_pct'] = _safe_divide(
-        (df_merged['points_for'] ** k), ((df_merged['points_for'] ** k) + (df_merged['points_against'] ** k))
-    )
-    df_merged['luck'] = df_merged['win_loss_pct'] - df_merged['pythagorean_win_pct']
-    df_merged.drop(
-        columns=['team_score', 'opponent_team_score', 'points_for', 'points_against', 'pythagorean_win_pct'],
-        inplace=True,
-        errors='ignore'
-    )
-
-    matchup_base = df_merged.merge(
-        df_merged,
-        on=['game_id', 'season', 'season_type', 'game_date'],
-        suffixes=('_a', '_b')
-    )
-    matchup_base = matchup_base[matchup_base['team_id_a'] != matchup_base['team_id_b']]
-    matchup_base = matchup_base.merge(
-        league_daily[['season', 'game_date', 'league_avg_off_eff', 'league_avg_def_eff']],
-        on=['season', 'game_date'],
-        how='left'
-    )
-    matchup_base = matchup_base.sort_values(by=['game_date', 'game_id'], ascending=True)
-
-    matchup_base['sos'] = matchup_base.groupby('team_id_a')['net_eff_avg_b'].transform(
-        lambda x: x.shift(1).expanding().mean()
-    )
-    matchup_base['sos_opp'] = matchup_base.groupby('team_id_b')['net_eff_avg_a'].transform(
-        lambda x: x.shift(1).expanding().mean()
-    )
-
-    matchup_base['adj_factor_def_a'] = matchup_base['league_avg_def_eff'] / matchup_base['def_eff_avg_b']
-    matchup_base['adj_factor_off_a'] = matchup_base['league_avg_off_eff'] / matchup_base['off_eff_avg_b']
-    matchup_base['adj_factor_def_b'] = matchup_base['league_avg_def_eff'] / matchup_base['def_eff_avg_a']
-    matchup_base['adj_factor_off_b'] = matchup_base['league_avg_off_eff'] / matchup_base['off_eff_avg_a']
-
-    matchup_base['adj_off_eff_a'] = matchup_base['off_eff_avg_a'] * matchup_base['adj_factor_def_a']
-    matchup_base['adj_def_eff_a'] = matchup_base['def_eff_avg_a'] * matchup_base['adj_factor_off_a']
-    matchup_base['adj_net_eff_a'] = matchup_base['adj_off_eff_a'] - matchup_base['adj_def_eff_a']
-    matchup_base['adj_off_eff_b'] = matchup_base['off_eff_avg_b'] * matchup_base['adj_factor_def_b']
-    matchup_base['adj_def_eff_b'] = matchup_base['def_eff_avg_b'] * matchup_base['adj_factor_off_b']
-    matchup_base['adj_net_eff_b'] = matchup_base['adj_off_eff_b'] - matchup_base['adj_def_eff_b']
-
-    matchup_base['adj_sos'] = matchup_base.groupby('team_id_a')['adj_net_eff_b'].transform(
-        lambda x: x.shift(1).expanding().mean()
-    )
-    matchup_base['adj_sos_opp'] = matchup_base.groupby('team_id_b')['adj_net_eff_a'].transform(
-        lambda x: x.shift(1).expanding().mean()
-    )
-
-    matchup_base['power_rating_a'] = matchup_base['adj_net_eff_a'] + matchup_base['adj_sos']
-    matchup_base['power_rating_b'] = matchup_base['adj_net_eff_b'] + matchup_base['adj_sos_opp']
-
-    sos_map = matchup_base[
-        ['game_id', 'team_id_a', 'sos', 'adj_sos', 'adj_off_eff_a', 'adj_def_eff_a', 'adj_net_eff_a', 'power_rating_a']
-    ].rename(
-        columns={
-            'team_id_a': 'team_id',
-            'adj_off_eff_a': 'adj_off_eff',
-            'adj_def_eff_a': 'adj_def_eff',
-            'adj_net_eff_a': 'adj_net_eff',
-            'power_rating_a': 'power_rating'
-        }
-    )
-    df_merged = df_merged.merge(sos_map, on=['game_id', 'team_id'], how='left')
-
-    return df_merged
-
-
-def build_matchup_feature_row(
-    left_snapshot: pd.Series,
-    right_snapshot: pd.Series,
-    season: int,
-    season_type: int,
-    team_home_away: int,
-) -> pd.DataFrame:
-    def val(row: pd.Series, column: str, default: float = np.nan) -> float:
-        if column not in row or pd.isna(row[column]):
-            return default
-        return float(row[column])
-
-    def val_or_nan(row: pd.Series, column: str) -> float:
-        if column not in row or pd.isna(row[column]):
-            return np.nan
-        return float(row[column])
-
-    def safe_scalar_divide(num: float, den: float) -> float:
-        if den == 0 or pd.isna(den):
-            return np.nan
-        return num / den
-
-    exp_poss = (val(left_snapshot, 'poss_avg') + val(right_snapshot, 'poss_avg')) / 2
-
-    left_date = pd.to_datetime(left_snapshot.get('game_date', None), errors='coerce')
-    right_date = pd.to_datetime(right_snapshot.get('game_date', None), errors='coerce')
-    if pd.isna(right_date) or (not pd.isna(left_date) and left_date >= right_date):
-        league_avg_off_eff = val_or_nan(left_snapshot, 'league_avg_off_eff')
-        league_avg_def_eff = val_or_nan(left_snapshot, 'league_avg_def_eff')
-    else:
-        league_avg_off_eff = val_or_nan(right_snapshot, 'league_avg_off_eff')
-        league_avg_def_eff = val_or_nan(right_snapshot, 'league_avg_def_eff')
-
-    off_eff_avg_a = val_or_nan(left_snapshot, 'off_eff_avg')
-    def_eff_avg_a = val_or_nan(left_snapshot, 'def_eff_avg')
-    off_eff_avg_b = val_or_nan(right_snapshot, 'off_eff_avg')
-    def_eff_avg_b = val_or_nan(right_snapshot, 'def_eff_avg')
-
-    adj_factor_def_a = safe_scalar_divide(league_avg_def_eff, def_eff_avg_b)
-    adj_factor_off_a = safe_scalar_divide(league_avg_off_eff, off_eff_avg_b)
-    adj_factor_def_b = safe_scalar_divide(league_avg_def_eff, def_eff_avg_a)
-    adj_factor_off_b = safe_scalar_divide(league_avg_off_eff, off_eff_avg_a)
-
-    adj_off_eff_a = off_eff_avg_a * adj_factor_def_a
-    adj_def_eff_a = def_eff_avg_a * adj_factor_off_a
-    adj_net_eff_a = adj_off_eff_a - adj_def_eff_a
-    adj_off_eff_b = off_eff_avg_b * adj_factor_def_b
-    adj_def_eff_b = def_eff_avg_b * adj_factor_off_b
-    adj_net_eff_b = adj_off_eff_b - adj_def_eff_b
-
-    adj_sos_a = val_or_nan(left_snapshot, 'adj_sos')
-    adj_sos_b = val_or_nan(right_snapshot, 'adj_sos')
-    power_rating_a = adj_net_eff_a + adj_sos_a
-    power_rating_b = adj_net_eff_b + adj_sos_b
-
-    three_attempt_rate_avg_a = val(left_snapshot, 'three_attempt_rate_avg')
-    three_attempt_rate_avg_b = val(right_snapshot, 'three_attempt_rate_avg')
-    allowed_three_attempt_rate_avg_a = val(left_snapshot, 'allowed_three_attempt_rate_avg')
-    allowed_three_attempt_rate_avg_b = val(right_snapshot, 'allowed_three_attempt_rate_avg')
-    three_pct_avg_a = val(left_snapshot, 'three_pct_avg')
-    three_pct_avg_b = val(right_snapshot, 'three_pct_avg')
-    three_pct_opponent_avg_a = val(left_snapshot, 'three_pct_opponent_avg')
-    three_pct_opponent_avg_b = val(right_snapshot, 'three_pct_opponent_avg')
-    two_pct_avg_a = val(left_snapshot, 'two_pct_avg')
-    two_pct_avg_b = val(right_snapshot, 'two_pct_avg')
-    two_pct_opponent_avg_a = val(left_snapshot, 'two_pct_opponent_avg')
-    two_pct_opponent_avg_b = val(right_snapshot, 'two_pct_opponent_avg')
-    ftr_avg_a = val(left_snapshot, 'ftr_avg')
-    ftr_avg_b = val(right_snapshot, 'ftr_avg')
-    foul_rate_avg_a = val(left_snapshot, 'foul_rate_avg')
-    foul_rate_avg_b = val(right_snapshot, 'foul_rate_avg')
-
-    threes_advantage = (three_attempt_rate_avg_a * three_pct_avg_a) - (
-        allowed_three_attempt_rate_avg_b * three_pct_opponent_avg_b
-    )
-    threes_disadvantage = (allowed_three_attempt_rate_avg_a * three_pct_opponent_avg_a) - (
-        three_attempt_rate_avg_b * three_pct_avg_b
-    )
-    two_pointers_advantage = ((1 - three_attempt_rate_avg_a) * two_pct_avg_a) - (
-        (1 - allowed_three_attempt_rate_avg_b) * two_pct_opponent_avg_b
-    )
-    two_pointers_disadvantage = ((1 - allowed_three_attempt_rate_avg_a) * two_pct_opponent_avg_a) - (
-        (1 - three_attempt_rate_avg_b) * two_pct_avg_b
-    )
-    free_throws_advantage = ftr_avg_a - foul_rate_avg_b
-    free_throws_disadvantage = foul_rate_avg_a - ftr_avg_b
-
-    feature_row = {
-        'season': int(season),
-        'season_type': int(season_type),
-        'team_home_away': int(team_home_away),
-        'is_early_season': int(val(left_snapshot, 'is_early_season', 1.0)),
-        'sos': val(left_snapshot, 'sos'),
-        'sos_opp': val(right_snapshot, 'sos'),
-        'threes_advantage': threes_advantage,
-        'threes_disadvantage': threes_disadvantage,
-        'two_pointers_advantage': two_pointers_advantage,
-        'two_pointers_disadvantage': two_pointers_disadvantage,
-        'free_throws_advantage': free_throws_advantage,
-        'free_throws_disadvantage': free_throws_disadvantage,
-        'adj_sos': val(left_snapshot, 'adj_sos'),
-        'adj_sos_opp': val(right_snapshot, 'adj_sos'),
-        'off_vs_def': val(left_snapshot, 'off_eff_avg') - val(right_snapshot, 'def_eff_avg'),
-        'def_vs_off': val(right_snapshot, 'off_eff_avg') - val(left_snapshot, 'def_eff_avg'),
-        'tov_vs_stl': val(left_snapshot, 'tov_avg') - val(right_snapshot, 'stl_rate_avg'),
-        'stl_vs_tov': val(right_snapshot, 'tov_avg') - val(left_snapshot, 'stl_rate_avg'),
-        'orb_vs_drb': val(left_snapshot, 'orb_avg') - val(right_snapshot, 'drb_avg'),
-        'drb_vs_orb': val(right_snapshot, 'orb_avg') - val(left_snapshot, 'drb_avg'),
-        'pace_diff': val(left_snapshot, 'poss_avg') - val(right_snapshot, 'poss_avg'),
-        'exp_poss': exp_poss,
-        'efg_vs_efg_allowed': val(left_snapshot, 'efg_avg') - val(right_snapshot, 'efg_allowed_avg'),
-        'efg_allowed_vs_efg': val(right_snapshot, 'efg_avg') - val(left_snapshot, 'efg_allowed_avg'),
-        'margin_estimate': ((val(left_snapshot, 'net_eff_avg') - val(right_snapshot, 'net_eff_avg')) * exp_poss) / 100,
-        'home_off_away_def': val(left_snapshot, 'home_off_eff') - val(right_snapshot, 'away_def_eff'),
-        'home_def_away_off': val(left_snapshot, 'home_def_eff') - val(right_snapshot, 'away_off_eff'),
-        'away_off_home_def': val(left_snapshot, 'away_off_eff') - val(right_snapshot, 'home_def_eff'),
-        'away_def_home_off': val(left_snapshot, 'away_def_eff') - val(right_snapshot, 'home_off_eff'),
-        'three_variance_diff': val(left_snapshot, 'three_variance') - val(right_snapshot, 'three_variance'),
-        'score_variance_diff': val(left_snapshot, 'score_variance') - val(right_snapshot, 'score_variance'),
-        'def_score_variance_diff': (
-            val(left_snapshot, 'def_score_variance') - val(right_snapshot, 'def_score_variance')
-        ),
-        'off_eff_variance_diff': val(left_snapshot, 'off_eff_variance') - val(right_snapshot, 'off_eff_variance'),
-        'pace_variance_diff': val(left_snapshot, 'pace_variance') - val(right_snapshot, 'pace_variance'),
-        'last_10_efficiency_diff': val(left_snapshot, 'last_10_efficiency') - val(right_snapshot, 'last_10_efficiency'),
-    }
-
-    for base_col in AVG_BASE_COLS:
-        feature_row[f'{base_col}_avg_diff'] = val(left_snapshot, f'{base_col}_avg') - val(right_snapshot, f'{base_col}_avg')
-        feature_row[f'{base_col}_rolling_5_diff'] = (
-            val(left_snapshot, f'{base_col}_rolling_5') - val(right_snapshot, f'{base_col}_rolling_5')
-        )
-
-    feature_row['conference_strength_diff'] = (
-        val(left_snapshot, 'conference_strength') - val(right_snapshot, 'conference_strength')
-    )
-    feature_row['win_loss_pct_diff'] = val(left_snapshot, 'win_loss_pct') - val(right_snapshot, 'win_loss_pct')
-    feature_row['non_conf_win_loss_pct_diff'] = (
-        val(left_snapshot, 'non_conf_win_loss_pct') - val(right_snapshot, 'non_conf_win_loss_pct')
-    )
-    feature_row['conference_nonconf_win_pct_diff'] = (
-        val(left_snapshot, 'conference_nonconf_win_pct') - val(right_snapshot, 'conference_nonconf_win_pct')
-    )
-    feature_row['luck_diff'] = val(left_snapshot, 'luck') - val(right_snapshot, 'luck')
-    feature_row['adj_off_eff_diff'] = adj_off_eff_a - adj_off_eff_b
-    feature_row['adj_def_eff_diff'] = adj_def_eff_a - adj_def_eff_b
-    feature_row['adj_net_eff_diff'] = adj_net_eff_a - adj_net_eff_b
-    feature_row['power_rating_diff'] = power_rating_a - power_rating_b
-
-    return pd.DataFrame([feature_row]).replace([np.inf, -np.inf], np.nan).fillna(-100)
 
 
 def _get_model_bundle():
@@ -678,44 +34,11 @@ def _get_model_bundle():
     return _MODEL_BUNDLE
 
 
-def _get_conference_mapping():
-    global _CONFERENCE_MAPPING
-    if _CONFERENCE_MAPPING is None:
-        _CONFERENCE_MAPPING = dp.load_conference_mapping()
-    return _CONFERENCE_MAPPING
-
-
-def _get_team_feature_data_for_season(season: int) -> pd.DataFrame:
-    if season not in _TEAM_FEATURE_CACHE:
-        _TEAM_FEATURE_CACHE[season] = dp.build_team_feature_rows(season, _get_conference_mapping())
-    return _TEAM_FEATURE_CACHE[season]
-
-
-def _get_latest_team_snapshot(team_name: str, season: int) -> pd.Series | None:
-    cache_key = (season, team_name)
-    if cache_key in _TEAM_SNAPSHOT_CACHE:
-        return _TEAM_SNAPSHOT_CACHE[cache_key]
-
-    season_features = _get_team_feature_data_for_season(season)
-    if season_features.empty:
-        _TEAM_SNAPSHOT_CACHE[cache_key] = None
-        return None
-
-    team_rows = season_features[season_features['team_name'] == team_name].copy()
-    if team_rows.empty:
-        _TEAM_SNAPSHOT_CACHE[cache_key] = None
-        return None
-
-    team_rows = team_rows.sort_values(by=['game_date', 'game_id'], ascending=True)
-    snapshot = team_rows.iloc[-1].copy().replace([np.inf, -np.inf], np.nan).fillna(-100)
-    _TEAM_SNAPSHOT_CACHE[cache_key] = snapshot
-    return snapshot
-
-
 def _latest_season_from_data(default: int = 2026) -> int:
     data_dir = _DATA_DIR / "game_results"
     if not data_dir.exists():
         return default
+
     seasons = []
     for path in data_dir.glob("games_*.csv"):
         stem = path.stem
@@ -736,161 +59,311 @@ def _resolve_season(team_a: Team, team_b: Team) -> int:
 def _predict_win_prob(team_a: Team, team_b: Team) -> float:
     model_bundle = _get_model_bundle()
     season = _resolve_season(team_a, team_b)
-    left_snapshot = _get_latest_team_snapshot(team_a.name, season)
-    right_snapshot = _get_latest_team_snapshot(team_b.name, season)
 
-    if left_snapshot is None or right_snapshot is None:
-        return 0.5
-
-    season_type = 3
-    team_home_away = 2
-
-    processed_data = dp.build_matchup_feature_row(
-        left_snapshot,
-        right_snapshot,
+    processed_data = cached_matchup.build_prediction_feature_row(
+        team_a.name,
+        team_b.name,
         season=season,
-        season_type=season_type,
-        team_home_away=team_home_away,
+        season_type=3,
+        team_a_home_away=2,
     )
-    win_prob, _ = ensemble.predict_ensemble(processed_data, model_bundle)
+    win_prob, _ = ensemble.predict_meta_ensemble(processed_data, model_bundle)
     return win_prob
 
-# -----------------------------
-# BUILD BRACKET
-# -----------------------------
 
-def build_sec_bracket(seeds):
-    """
-    seeds = list of 16 Team objects sorted by seed
-    """
+def sanity_check_team_mappings(teams, season: int | None = None):
+    if not teams:
+        return []
 
-    # Round 1
-    #g1 = Game(seeds[8], seeds[15])   # 9 vs 16
-    #g2 = Game(seeds[11], seeds[12])  # 12 vs 13
-    #g3 = Game(seeds[9], seeds[14])   # 10 vs 15
-    #g4 = Game(seeds[10], seeds[13])  # 11 vs 14
+    resolved_season = int(season) if season is not None else int(teams[0].season or _latest_season_from_data())
+    team_id_map = cached_matchup._load_team_id_map(resolved_season)
 
-    # Round 2 (5-8 enter)
-    #g5 = Game(seeds[7], seeds[8], None, None)  # 8 vs winner g1
-    #g6 = Game(seeds[4], seeds[11], None, None)  # 5 vs winner g2
-    #g7 = Game(seeds[6], seeds[14], None, None)  # 7 vs winner g3
-    #g8 = Game(seeds[5], seeds[10], None, None)  # 6 vs winner g4
+    missing = []
+    for team in teams:
+        if cached_matchup._team_key(team.name) not in team_id_map:
+            missing.append(team.name)
 
-    # Quarterfinals (1-4 enter)
-    g9  = Game(seeds[0], seeds[8], None, None)
-    g10 = Game(seeds[3], seeds[4], None, None)
-    g11 = Game(seeds[1], seeds[14], None, None)
-    g12 = Game(seeds[2], seeds[10], None, None)
+    if missing:
+        print(f"Unmatched team names for {resolved_season}:")
+        for name in missing:
+            print(f" - {name}")
+    else:
+        print(f"All {len(teams)} team names matched for {resolved_season}.")
 
-    # Semifinals
-    g13 = Game(None, None, g9, g10)
-    g14 = Game(None, None, g11, g12)
-
-    # Championship
-    g15 = Game(None, None, g13, g14)
-
-    return [
-        g1,g2,g3,g4,
-        g5,g6,g7,g8,
-        g9,g10,g11,g12,
-        g13,g14,
-        g15
-    ]
-
-# -----------------------------
-# RUN TOURNAMENT
-# -----------------------------
-
-def run_bracket(games, prob_lookup=None):
-
-    for game in games:
-        play_game(game, prob_lookup)
-
-    return games[-1].winner
+    return missing
 
 
-# -----------------------------
-# MONTE CARLO SIMULATION
-# -----------------------------
+def _ordered_64_team_field(teams):
+    if len(teams) != 64:
+        raise ValueError("simulate_tournament expects exactly 64 teams.")
 
-def simulate_tournament(teams, prob_lookup=None, sims=1000):
+    region_order = ["East", "South", "West", "Midwest"]
+    if all(getattr(team, "region", None) for team in teams):
+        region_map = {region: [] for region in region_order}
+        for team in teams:
+            if team.region not in region_map:
+                raise ValueError(f"Unexpected region '{team.region}'. Expected one of {region_order}.")
+            region_map[team.region].append(team)
 
-    if len(teams) != 16:
-        raise ValueError("simulate_tournament expects exactly 16 teams.")
+        ordered = []
+        for region in region_order:
+            region_teams = sorted(region_map[region], key=lambda team: team.seed)
+            if len(region_teams) != 16:
+                raise ValueError(f"Region {region} must contain exactly 16 teams.")
+            ordered.extend(region_teams)
+        return ordered
 
-    n = len(teams)
-    prob_matrix = np.full((n, n), 0.5, dtype=float)
+    return teams
 
-    for i in range(n):
-        for j in range(n):
-            if i == j:
-                continue
-            if prob_lookup:
-                prob_matrix[i, j] = float(prob_lookup(teams[i], teams[j]))
-            else:
-                prob_matrix[i, j] = float(_predict_win_prob(teams[i], teams[j]))
 
-    rng = np.random.default_rng()
+def _build_prob_lookup(teams, prob_lookup=None):
+    cache: dict[tuple[int, int], float] = {}
 
+    def get_prob(i: int, j: int) -> float:
+        if i == j:
+            return 0.5
+
+        key = (i, j)
+        if key in cache:
+            return cache[key]
+
+        if prob_lookup:
+            p = float(prob_lookup(teams[i], teams[j]))
+        else:
+            print(f"Predicting win probability for {teams[i].name} vs {teams[j].name}")
+            p = float(_predict_win_prob(teams[i], teams[j]))
+
+        cache[(i, j)] = p
+        cache[(j, i)] = 1.0 - p
+        return p
+
+    return get_prob
+
+
+def _play_region(get_prob, base_idx, sims, rng):
     def play_match(a_idx, b_idx):
-        p = prob_matrix[a_idx, b_idx]
+        p = np.fromiter((get_prob(int(a), int(b)) for a, b in zip(a_idx, b_idx)), dtype=float, count=len(a_idx))
         r = rng.random(size=a_idx.shape[0])
         return np.where(r < p, a_idx, b_idx)
 
-    #g1 = play_match(np.full(sims, 8), np.full(sims, 15))
-    #g2 = play_match(np.full(sims, 11), np.full(sims, 12))
-    #g3 = play_match(np.full(sims, 9), np.full(sims, 14))
-    #g4 = play_match(np.full(sims, 10), np.full(sims, 13))
+    seeds = list(range(base_idx, base_idx + 16))
 
-    #g5 = play_match(np.full(sims, 7), np.full(sims, 8))
-    #g6 = play_match(np.full(sims, 4), np.full(sims, 11))
-    #g7 = play_match(np.full(sims, 6), np.full(sims, 14))
-    #g8 = play_match(np.full(sims, 5), np.full(sims, 10))
+    r32_1 = play_match(np.full(sims, seeds[0]), np.full(sims, seeds[15]))
+    r32_2 = play_match(np.full(sims, seeds[7]), np.full(sims, seeds[8]))
+    r32_3 = play_match(np.full(sims, seeds[4]), np.full(sims, seeds[11]))
+    r32_4 = play_match(np.full(sims, seeds[3]), np.full(sims, seeds[12]))
+    r32_5 = play_match(np.full(sims, seeds[5]), np.full(sims, seeds[10]))
+    r32_6 = play_match(np.full(sims, seeds[2]), np.full(sims, seeds[13]))
+    r32_7 = play_match(np.full(sims, seeds[6]), np.full(sims, seeds[9]))
+    r32_8 = play_match(np.full(sims, seeds[1]), np.full(sims, seeds[14]))
 
-    g9 = play_match(np.full(sims, 0), np.full(sims, 8))
-    g10 = play_match(np.full(sims, 3), np.full(sims, 4))
-    g11 = play_match(np.full(sims, 1), np.full(sims, 14))
-    g12 = play_match(np.full(sims, 2), np.full(sims, 10))
+    round_of_32 = np.stack([r32_1, r32_2, r32_3, r32_4, r32_5, r32_6, r32_7, r32_8], axis=1)
 
-    g13 = play_match(g9, g10)
-    g14 = play_match(g11, g12)
-    winners = play_match(g13, g14)
+    s16_1 = play_match(r32_1, r32_2)
+    s16_2 = play_match(r32_3, r32_4)
+    s16_3 = play_match(r32_5, r32_6)
+    s16_4 = play_match(r32_7, r32_8)
 
-    for i, w in enumerate(winners, start=1):
-        print(f"Simulation {i} of {sims}: {teams[w].name}")
+    sweet_16 = np.stack([s16_1, s16_2, s16_3, s16_4], axis=1)
 
-    counts = np.bincount(winners, minlength=n).astype(float)
-    results = {teams[i].name: counts[i] / sims for i in range(n) if counts[i] > 0}
+    e8_1 = play_match(s16_1, s16_2)
+    e8_2 = play_match(s16_3, s16_4)
+
+    elite_8 = np.stack([e8_1, e8_2], axis=1)
+    final_4_team = play_match(e8_1, e8_2)
+
+    return {
+        'round_of_32': round_of_32,
+        'sweet_16': sweet_16,
+        'elite_8': elite_8,
+        'final_4_team': final_4_team,
+    }
+
+
+def simulate_tournament(teams, prob_lookup=None, sims=1000):
+    teams = _ordered_64_team_field(teams)
+    n = len(teams)
+    get_prob = _build_prob_lookup(teams, prob_lookup=prob_lookup)
+    rng = np.random.default_rng()
+
+    def play_match(a_idx, b_idx):
+        p = np.fromiter((get_prob(int(a), int(b)) for a, b in zip(a_idx, b_idx)), dtype=float, count=len(a_idx))
+        r = rng.random(size=a_idx.shape[0])
+        return np.where(r < p, a_idx, b_idx)
+
+    east = _play_region(get_prob, 0, sims, rng)
+    south = _play_region(get_prob, 16, sims, rng)
+    west = _play_region(get_prob, 32, sims, rng)
+    midwest = _play_region(get_prob, 48, sims, rng)
+
+    round_of_32_counts = np.bincount(
+        np.concatenate([
+            east['round_of_32'].ravel(),
+            south['round_of_32'].ravel(),
+            west['round_of_32'].ravel(),
+            midwest['round_of_32'].ravel(),
+        ]),
+        minlength=n,
+    ).astype(float)
+    sweet_16_counts = np.bincount(
+        np.concatenate([
+            east['sweet_16'].ravel(),
+            south['sweet_16'].ravel(),
+            west['sweet_16'].ravel(),
+            midwest['sweet_16'].ravel(),
+        ]),
+        minlength=n,
+    ).astype(float)
+    elite_8_counts = np.bincount(
+        np.concatenate([
+            east['elite_8'].ravel(),
+            south['elite_8'].ravel(),
+            west['elite_8'].ravel(),
+            midwest['elite_8'].ravel(),
+        ]),
+        minlength=n,
+    ).astype(float)
+
+    final_four_teams = np.stack(
+        [
+            east['final_4_team'],
+            south['final_4_team'],
+            west['final_4_team'],
+            midwest['final_4_team'],
+        ],
+        axis=1,
+    )
+    final_4_counts = np.bincount(final_four_teams.ravel(), minlength=n).astype(float)
+
+    semifinal_1_winner = play_match(east['final_4_team'], south['final_4_team'])
+    semifinal_2_winner = play_match(west['final_4_team'], midwest['final_4_team'])
+    national_championship_teams = np.stack([semifinal_1_winner, semifinal_2_winner], axis=1)
+    national_championship_counts = np.bincount(national_championship_teams.ravel(), minlength=n).astype(float)
+
+    champions = play_match(semifinal_1_winner, semifinal_2_winner)
+    champion_counts = np.bincount(champions, minlength=n).astype(float)
+
+    results = {}
+    for i, team in enumerate(teams):
+        results[team.name] = {
+            'round_of_32': round_of_32_counts[i] / sims,
+            'sweet_16': sweet_16_counts[i] / sims,
+            'elite_8': elite_8_counts[i] / sims,
+            'final_4': final_4_counts[i] / sims,
+            'national_championship': national_championship_counts[i] / sims,
+            'champion': champion_counts[i] / sims,
+        }
 
     return results
 
 
-# -----------------------------
-# EXAMPLE USAGE
-# -----------------------------
-
 if __name__ == "__main__":
 
-    teams = [
-        Team("Florida",1),
-        Team("Alabama",2),
-        Team("Arkansas",3),
-        Team("Vanderbilt",4),
-        Team("Tennessee",5),
-        Team("Texas A&M",6),
-        Team("Georgia",7),
-        Team("Missouri",8),
-        Team("Kentucky",9),
-        Team("Texas",10),
-        Team("Oklahoma",11),
-        Team("Auburn",12),
-        Team("Mississippi State",13),
-        Team("South Carolina",14),
-        Team("Ole Miss",15),
-        Team("LSU",16),
+    tournament_year = 2026
+    south_teams = [
+        Team("Florida", 1, tournament_year, "South"),
+        Team("Houston", 2, tournament_year, "South"),
+        Team("Illinois", 3, tournament_year, "South"),
+        Team("Nebraska", 4, tournament_year, "South"),
+        Team("Vanderbilt", 5, tournament_year, "South"),
+        Team("North Carolina", 6, tournament_year, "South"),
+        Team("Saint Mary's", 7, tournament_year, "South"),
+        Team("Clemson", 8, tournament_year, "South"),
+        Team("Iowa", 9, tournament_year, "South"),
+        Team("Texas A&M", 10, tournament_year, "South"),
+        Team("VCU", 11, tournament_year, "South"),
+        Team("McNeese", 12, tournament_year, "South"),
+        Team("Troy", 13, tournament_year, "South"),
+        Team("Pennsylvania", 14, tournament_year, "South"),
+        Team("Idaho", 15, tournament_year, "South"),
+        Team("Prairie View A&M", 16, tournament_year, "South"),
     ]
+    east_teams = [
+        Team("Duke", 1, tournament_year, "East"),
+        Team("UConn", 2, tournament_year, "East"),
+        Team("Michigan State", 3, tournament_year, "East"),
+        Team("Kansas", 4, tournament_year, "East"),
+        Team("St. John's", 5, tournament_year, "East"),
+        Team("Louisville", 6, tournament_year, "East"),
+        Team("UCLA", 7, tournament_year, "East"),
+        Team("Ohio State", 8, tournament_year, "East"),
+        Team("TCU", 9, tournament_year, "East"),
+        Team("UCF", 10, tournament_year, "East"),
+        Team("South Florida", 11, tournament_year, "East"),
+        Team("Northern Iowa", 12, tournament_year, "East"),
+        Team("California Baptist", 13, tournament_year, "East"),
+        Team("North Dakota State", 14, tournament_year, "East"),
+        Team("Furman", 15, tournament_year, "East"),
+        Team("Siena", 16, tournament_year, "East"),
+    ]
+    west_teams = [
+        Team("Arizona", 1, tournament_year, "West"),
+        Team("Purdue", 2, tournament_year, "West"),
+        Team("Gonzaga", 3, tournament_year, "West"),
+        Team("Arkansas", 4, tournament_year, "West"),
+        Team("Wisconsin", 5, tournament_year, "West"),
+        Team("BYU", 6, tournament_year, "West"),
+        Team("Miami", 7, tournament_year, "West"),
+        Team("Villanova", 8, tournament_year, "West"),
+        Team("Utah State", 9, tournament_year, "West"),
+        Team("Missouri", 10, tournament_year, "West"),
+        Team("Texas", 11, tournament_year, "West"),
+        Team("High Point", 12, tournament_year, "West"),
+        Team("Hawai'i", 13, tournament_year, "West"),
+        Team("Kennesaw State", 14, tournament_year, "West"),
+        Team("Queens University", 15, tournament_year, "West"),
+        Team("Long Island University", 16, tournament_year, "West"),
+    ]
+    midwest_teams = [
+        Team("Michigan", 1, tournament_year, "Midwest"),
+        Team("Iowa State", 2, tournament_year, "Midwest"),
+        Team("Virginia", 3, tournament_year, "Midwest"),
+        Team("Alabama", 4, tournament_year, "Midwest"),
+        Team("Texas Tech", 5, tournament_year, "Midwest"),
+        Team("Tennessee", 6, tournament_year, "Midwest"),
+        Team("Kentucky", 7, tournament_year, "Midwest"),
+        Team("Georgia", 8, tournament_year, "Midwest"),
+        Team("Saint Louis", 9, tournament_year, "Midwest"),
+        Team("Colorado State", 10, tournament_year, "Midwest"),
+        Team("Miami (OH)", 11, tournament_year, "Midwest"),
+        Team("Akron", 12, tournament_year, "Midwest"),
+        Team("Hofstra", 13, tournament_year, "Midwest"),
+        Team("Wright State", 14, tournament_year, "Midwest"),
+        Team("Tennessee State", 15, tournament_year, "Midwest"),
+        Team("Howard", 16, tournament_year, "Midwest"),
+    ]
+    teams = south_teams + east_teams + west_teams + midwest_teams
+
+    missing = sanity_check_team_mappings(teams, tournament_year)
+    if missing:
+        print(f"Unmatched team names for {tournament_year}:")
+        for name in missing:
+            print(f" - {name}")
+        exit(1)
 
     results = simulate_tournament(teams, None, sims=100000)
+    import csv
 
-    for team, prob in sorted(results.items(), key=lambda x: -x[1]):
-        print(f"{team}: {prob*100:.1f}%")
+    with open("tournament_probabilities.csv", "w", newline='') as csvfile:
+        fieldnames = [
+            "Team",
+            "Round of 32",
+            "Sweet 16",
+            "Elite 8",
+            "Final 4",
+            "National Championship",
+            "Champion"
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for team, probs in sorted(results.items(), key=lambda x: -x[1]['champion']):
+            writer.writerow({
+                "Team": str(team),
+                "Round of 32": probs['round_of_32'] * 100,
+                "Sweet 16": probs['sweet_16'] * 100,
+                "Elite 8": probs['elite_8'] * 100,
+                "Final 4": probs['final_4'] * 100,
+                "National Championship": probs['national_championship'] * 100,
+                "Champion": probs['champion'] * 100
+            })
+    print('Tournament probabilities saved to tournament_probabilities.csv')

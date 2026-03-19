@@ -1,21 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-import numpy as np
+
 import joblib
+import numpy as np
+import pandas as pd
 
 import data_processing as dp
 
-CLASS_WEIGHTS = {
-    "lgbm": 0.35,
-    "xgb": 0.25,
-    "logreg": 0.40,
-}
-
-REG_WEIGHTS = {
-    "lgbm": 0.05,
-    "logreg": 0.95,
-}
+META_FEATURE_COLUMNS = ['winner_model_proba', 'spread_model_pred']
 
 _MODEL_CACHE = None
 
@@ -31,10 +24,6 @@ def _get_feature_names(model) -> list[str]:
         return list(model.feature_name_)
     if hasattr(model, "feature_names_in_"):
         return list(model.feature_names_in_)
-    if hasattr(model, "get_booster"):
-        booster = model.get_booster()
-        if booster and booster.feature_names:
-            return list(booster.feature_names)
     raise ValueError("Unable to infer feature names from model.")
 
 
@@ -44,94 +33,80 @@ def load_models(model_dir: Path | str | None = None) -> dict:
         return _MODEL_CACHE
 
     model_path = _resolve_model_dir(model_dir)
-    winner_lgbm = joblib.load(model_path / "lgbm_winner_model.joblib")
-    winner_xgb = joblib.load(model_path / "xgb_winner_model.joblib")
-    winner_logreg = joblib.load(model_path / "logreg_winner_model.joblib")
-
-    spread_lgbm = joblib.load(model_path / "lgbm_spread_model.joblib")
-    spread_xgb = joblib.load(model_path / "xgb_spread_model.joblib")
-    spread_logreg = joblib.load(model_path / "logreg_spread_model.joblib")
-
-    winner_features = _get_feature_names(winner_lgbm)
-    spread_features = _get_feature_names(spread_lgbm)
+    winner_model = joblib.load(model_path / "lgbm_winner_model.joblib")
+    spread_model = joblib.load(model_path / "lgbm_spread_model.joblib")
+    meta_model = joblib.load(model_path / "meta_model.joblib")
 
     _MODEL_CACHE = {
         "winner": {
-            "lgbm": winner_lgbm,
-            "xgb": winner_xgb,
-            "logreg": winner_logreg,
-            "features": winner_features,
+            "model": winner_model,
+            "features": _get_feature_names(winner_model),
         },
         "spread": {
-            "lgbm": spread_lgbm,
-            "xgb": spread_xgb,
-            "logreg": spread_logreg,
-            "features": spread_features,
+            "model": spread_model,
+            "features": _get_feature_names(spread_model),
+        },
+        "meta": {
+            "model": meta_model,
+            "features": META_FEATURE_COLUMNS,
         },
     }
     return _MODEL_CACHE
 
 
-def _sigmoid(x: np.ndarray) -> np.ndarray:
-    return 1 / (1 + np.exp(-x))
+def apply_prediction_adjustments(feature_df: pd.DataFrame) -> pd.DataFrame:
+    adjusted = feature_df.copy()
+    if 'team_home_away' not in adjusted.columns:
+        return adjusted
+
+    home_mask = adjusted['team_home_away'] == 1
+    away_mask = adjusted['team_home_away'] == 0
+
+    if 'margin_estimate' in adjusted.columns:
+        adjusted.loc[home_mask, 'margin_estimate'] = adjusted.loc[home_mask, 'margin_estimate'] + 7.00
+        adjusted.loc[away_mask, 'margin_estimate'] = adjusted.loc[away_mask, 'margin_estimate'] - 7.00
+
+    if 'point_differential_avg_diff' in adjusted.columns and 'margin_estimate' in adjusted.columns:
+        adjusted.loc[home_mask, 'point_differential_avg_diff'] = adjusted.loc[home_mask, 'margin_estimate'] + 6.90
+        adjusted.loc[away_mask, 'point_differential_avg_diff'] = adjusted.loc[away_mask, 'margin_estimate'] - 6.90
+
+    return adjusted
 
 
-def _predict_proba_like(model, X) -> np.ndarray:
-    if hasattr(model, "predict_proba"):
-        return model.predict_proba(X)[:, 1]
-    if hasattr(model, "decision_function"):
-        return _sigmoid(model.decision_function(X))
-    preds = model.predict(X)
-    return np.asarray(preds, dtype=float)
+def predict_base_models(feature_df: pd.DataFrame, model_bundle: dict | None = None) -> tuple[float, float]:
+    models = model_bundle or load_models()
+    adjusted = apply_prediction_adjustments(feature_df)
+
+    winner_models = models["winner"]
+    winner_X = dp.align_features_for_model(adjusted, winner_models["features"])
+    winner_prob = float(winner_models["model"].predict_proba(winner_X)[:, 1][0])
+
+    spread_models = models["spread"]
+    spread_X = dp.align_features_for_model(adjusted, spread_models["features"])
+    spread_pred = float(np.asarray(spread_models["model"].predict(spread_X), dtype=float)[0])
+
+    return winner_prob, spread_pred
 
 
-def _weighted_sum(preds: dict, weights: dict) -> np.ndarray:
-    total = np.zeros_like(next(iter(preds.values())))
-    for key, weight in weights.items():
-        total += weight * preds[key]
-    return total
+def predict_meta_ensemble(feature_df: pd.DataFrame, model_bundle: dict | None = None) -> tuple[float, float]:
+    models = model_bundle or load_models()
+    winner_prob, spread_pred = predict_base_models(feature_df, models)
 
-
-def predict_classification_ensemble(
-    feature_df,
-    model_bundle: dict,
-    weights: dict | None = None
-) -> float:
-    weights = weights or CLASS_WEIGHTS
-    winner_models = model_bundle["winner"]
-    features = winner_models["features"]
-    X = dp.align_features_for_model(feature_df, features)
-
-    preds = {
-        "lgbm": _predict_proba_like(winner_models["lgbm"], X),
-        "xgb": _predict_proba_like(winner_models["xgb"], X),
-        "logreg": _predict_proba_like(winner_models["logreg"], X),
-    }
-    return float(_weighted_sum(preds, weights)[0])
-
-
-def predict_regression_ensemble(
-    feature_df,
-    model_bundle: dict,
-    weights: dict | None = None
-) -> float:
-    weights = weights or REG_WEIGHTS
-    spread_models = model_bundle["spread"]
-    features = spread_models["features"]
-    X = dp.align_features_for_model(feature_df, features)
-
-    preds = {
-        "lgbm": np.asarray(spread_models["lgbm"].predict(X), dtype=float),
-        "logreg": np.asarray(spread_models["logreg"].predict(X), dtype=float),
-    }
-    return float(_weighted_sum(preds, weights)[0])
+    meta_input = pd.DataFrame(
+        [
+            {
+                'winner_model_proba': winner_prob,
+                'spread_model_pred': spread_pred,
+            }
+        ]
+    )
+    meta_X = dp.align_features_for_model(meta_input, models["meta"]["features"])
+    meta_prob = float(models["meta"]["model"].predict_proba(meta_X)[:, 1][0])
+    return meta_prob, spread_pred
 
 
 def predict_ensemble(feature_df, model_bundle: dict | None = None) -> tuple[float, float]:
-    models = model_bundle or load_models()
-    win_prob = predict_classification_ensemble(feature_df, models)
-    spread_pred = predict_regression_ensemble(feature_df, models)
-    return win_prob, spread_pred
+    return predict_meta_ensemble(feature_df, model_bundle)
 
 
 def round_to_half(value: float) -> float:
@@ -141,5 +116,5 @@ def round_to_half(value: float) -> float:
 def format_spread_range(spread_pred: float) -> str:
     spread_abs = round_to_half(abs(float(spread_pred)))
     if spread_abs.is_integer():
-        return f"±{int(spread_abs)}"
-    return f"±{spread_abs:.1f}"
+        return f"+/-{int(spread_abs)}"
+    return f"+/-{spread_abs:.1f}"

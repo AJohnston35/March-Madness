@@ -75,6 +75,28 @@ AVG_BASE_COLS = [
     'allowed_three_attempt_rate',
 ]
 
+RESIDUAL_STATS = [
+    'poss',
+    'poss_opponent',
+    'off_eff',
+    'def_eff',
+    'efg',
+    'ppp',
+    'drb',
+    'orb',
+]
+
+CLOSE_GAME_STATS = [
+    'poss',
+    'poss_opponent',
+    'off_eff',
+    'def_eff',
+    'efg',
+    'ppp',
+    'drb',
+    'orb',
+]
+
 TEAM_LOCATION_REPLACEMENTS = {
     'Hawaii': "Hawai'i",
     'St. Francis (PA)': 'Saint Francis',
@@ -211,6 +233,21 @@ def load_conference_mapping(conference_map_path: Path | str | None = None) -> pd
     return conference_mapping[['team_location_key', 'short_conference_name']]
 
 
+def _historical_mean_by_group(series: pd.Series, group_keys) -> pd.Series:
+    return series.groupby(group_keys).transform(lambda x: x.shift(1).expanding(min_periods=1).mean())
+
+
+def _historical_conditional_mean(series: pd.Series, condition: pd.Series, group_keys) -> pd.Series:
+    valid = condition.astype(bool) & series.notna()
+    running_total = series.where(valid, 0.0).groupby(group_keys).transform(
+        lambda x: x.shift(1).fillna(0).cumsum()
+    )
+    running_count = valid.astype(float).groupby(group_keys).transform(
+        lambda x: x.shift(1).fillna(0).cumsum()
+    )
+    return running_total / running_count.replace(0, np.nan)
+
+
 def add_elo_ratings(df_merged, elo_ratings, elo_last_season):
     """
     Store a leakage-safe pre-game rating on each row.
@@ -324,11 +361,6 @@ def _prepare_team_game_rows(
             df[col] = 0
 
     df['team_location'] = df['team_location'].replace(TEAM_LOCATION_REPLACEMENTS)
-    if keep_team_name:
-        if 'team_name' not in df.columns:
-            df['team_name'] = df['team_location']
-        else:
-            df['team_name'] = df['team_name'].fillna(df['team_location'])
 
     df['team_location_key'] = df['team_location'].astype(str).str.strip().str.lower()
     df = df.merge(conference_mapping, on='team_location_key', how='left')
@@ -470,8 +502,58 @@ def _prepare_team_game_rows(
             lambda x: x.shift(1).ewm(alpha=alpha*2, min_periods=1).mean()
         )
 
+    df_merged['close_game'] = df_merged['point_differential'].abs() <= 5
+    group_keys = [df_merged['team_id'], df_merged['season']]
+
+    for stat in CLOSE_GAME_STATS:
+        df_merged[f'{stat}_close_game_avg'] = _historical_conditional_mean(
+            df_merged[stat],
+            df_merged['close_game'],
+            group_keys,
+        )
+
+    expectation_inputs = ['poss_avg', 'poss_opponent_avg', 'off_eff_avg', 'def_eff_avg', 'efg_allowed_avg', 'orb_avg', 'drb_avg']
+    opponent_expected = df_merged[
+        ['game_id', 'season', 'season_type', 'game_date', 'team_id'] + expectation_inputs
+    ].rename(
+        columns={
+            'team_id': 'opponent_team_id',
+            **{col: f'opponent_{col}' for col in expectation_inputs},
+        }
+    )
+    residual_rows = df_merged.reset_index().merge(
+        opponent_expected,
+        on=['game_id', 'season', 'season_type', 'game_date'],
+        how='left',
+    )
+    residual_rows = residual_rows[residual_rows['team_id'] != residual_rows['opponent_team_id']].copy()
+    residual_rows = residual_rows.drop_duplicates(subset='index').set_index('index')
+
+    expected_stat_map = {
+        'poss': residual_rows['opponent_poss_opponent_avg'],
+        'poss_opponent': residual_rows['opponent_poss_avg'],
+        'off_eff': residual_rows['opponent_def_eff_avg'],
+        'def_eff': residual_rows['opponent_off_eff_avg'],
+        'efg': residual_rows['opponent_efg_allowed_avg'],
+        'ppp': residual_rows['opponent_def_eff_avg'] / 100.0,
+        'drb': 1.0 - residual_rows['opponent_orb_avg'],
+        'orb': 1.0 - residual_rows['opponent_drb_avg'],
+    }
+
+    for stat in RESIDUAL_STATS:
+        df_merged[f'{stat}_residual'] = df_merged[stat] - expected_stat_map[stat]
+        df_merged[f'{stat}_residual_avg'] = _historical_mean_by_group(
+            df_merged[f'{stat}_residual'],
+            group_keys,
+        )
+
     drop_avg_bases = [col for col in AVG_BASE_COLS if col not in ['team_score', 'opponent_team_score']]
     df_merged.drop(columns=drop_avg_bases, inplace=True, errors='ignore')
+    df_merged.drop(
+        columns=['close_game'] + [f'{stat}_residual' for stat in RESIDUAL_STATS],
+        inplace=True,
+        errors='ignore',
+    )
 
     df_merged['conference_strength'] = df_merged.groupby(['season', 'short_conference_name'])['net_eff_avg'].transform(
         lambda x: x.shift(1).expanding(min_periods=1).mean()
@@ -548,6 +630,8 @@ def _prepare_team_game_rows(
         inplace=True,
         errors='ignore',
     )
+    season = df_merged['season'].iloc[0]
+    df_merged.to_csv(f'Data/cached_data/df_{season}.csv', index=False)
     return df_merged
 
 
@@ -767,7 +851,6 @@ def process_all_games(
         elo_ratings=elo_ratings,
         elo_last_season=elo_last_season,
     )
-
     print("Getting matchup features...")
     pair_rows = _build_pair_rows(team_rows)
     return _flatten_pair_rows(pair_rows, drop_missing=True)
@@ -880,6 +963,18 @@ def build_matchup_feature_row(
         feature_row[f'{base_col}_rolling_5_diff'] = val(left_snapshot, f'{base_col}_rolling_5') - val(
             right_snapshot,
             f'{base_col}_rolling_5',
+        )
+
+    for stat in CLOSE_GAME_STATS:
+        feature_row[f'{stat}_close_game_avg_diff'] = val(left_snapshot, f'{stat}_close_game_avg') - val(
+            right_snapshot,
+            f'{stat}_close_game_avg',
+        )
+
+    for stat in RESIDUAL_STATS:
+        feature_row[f'{stat}_residual_avg_diff'] = val(left_snapshot, f'{stat}_residual_avg') - val(
+            right_snapshot,
+            f'{stat}_residual_avg',
         )
 
     feature_row['conference_strength_diff'] = (
